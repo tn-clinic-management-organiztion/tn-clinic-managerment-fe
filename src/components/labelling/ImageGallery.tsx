@@ -18,6 +18,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { notifyError, notifySuccess } from "@/components/toast";
 
 // --- CONFIG ---
 const LIMIT = 8; // Số ảnh mỗi trang
@@ -121,11 +122,11 @@ export default function ImageGallery() {
     try {
       setIsUploading(true);
       await uploadResultImage(file, session?.user.id);
-      alert("Upload thành công!");
+      notifySuccess("Upload thành công!");
       setPage(1);
       fetchImages();
     } catch (error) {
-      alert("Upload thất bại.");
+      notifyError("Upload thất bại.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -202,7 +203,7 @@ export default function ImageGallery() {
                 };
                 await postDownloadAnnotation(dto);
               } catch (e) {
-                alert("Tải annotations thất bại.");
+                notifyError("Tải annotations thất bại.");
               }
             }}
             disabled={isUploading}

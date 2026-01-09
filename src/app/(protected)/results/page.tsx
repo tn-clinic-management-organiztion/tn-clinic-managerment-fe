@@ -29,6 +29,7 @@ import {
   Service,
 } from "@/types";
 import { useQueueSocket } from "@/hook/useQueueSocket";
+import { notifyError } from "@/components/toast";
 
 // ===== Helpers =====
 const fmt = (v?: string | null) => {
@@ -117,7 +118,7 @@ export default function ResultsPage() {
       setQueue(list ?? []);
     } catch (e) {
       console.error("loadQueue error:", e);
-      alert("Lỗi get ticket cho roomID");
+      notifyError("Lỗi get ticket cho roomID");
       setQueue([]);
     } finally {
       setLoadingQueue(false);

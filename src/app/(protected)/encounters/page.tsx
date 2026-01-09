@@ -258,7 +258,7 @@ export default function DoctorPage() {
   // ===== Start consultation =====
   const startConsultation = async (encounter: MedicalEncounter) => {
     if (!doctorId) {
-      alert("Thiếu doctor_id trong session (session.user.id).");
+      notifyError("Thiếu doctor_id trong session (session.user.id).");
       return;
     }
 
@@ -329,7 +329,7 @@ export default function DoctorPage() {
     const conclusion = (current.doctor_conclusion ?? "").trim();
 
     if (!finalIcd || !conclusion) {
-      alert(
+      notifyError(
         "Cần nhập ICD10 (chẩn đoán cuối) và Kết luận bác sĩ trước khi hoàn thành."
       );
       return;
