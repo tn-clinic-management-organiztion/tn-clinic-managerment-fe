@@ -16,13 +16,13 @@ import { useSession } from "next-auth/react";
 
 import {
   QueueTicket,
-  PatientData,
+  Patient,
   Gender,
   Room,
   CreateTicketPayload,
-  CreatePatientDto,
-  UpdatePatientDto,
-  UpdateTicketDto,
+  CreatePatientPayload,
+  UpdatePatientPayload,
+  UpdateTicketPayload,
 } from "@/types";
 import { RoomType } from "@/types/rooms";
 
@@ -94,13 +94,13 @@ export default function ReceptionPage() {
   // =========================
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<PatientData[]>([]);
+  const [searchResults, setSearchResults] = useState<Patient[]>([]);
   const [showSearchModal, setShowSearchModal] = useState(false);
 
   // =========================
   // 6) STATE - PATIENT FORM
   // =========================
-  const [patientForm, setPatientForm] = useState<PatientData>({
+  const [patientForm, setPatientForm] = useState<Patient>({
     patient_id: "",
     full_name: "",
     dob: "",
@@ -364,7 +364,7 @@ export default function ReceptionPage() {
       };
 
       const data = await getSearchPatient(searchDto);
-      const list: PatientData[] = Array.isArray(data) ? data : [];
+      const list: Patient[] = Array.isArray(data) ? data : [];
 
       if (list.length === 0) {
         // CASE 0: Không thấy -> chuẩn bị tạo mới (prefill dữ liệu search)
@@ -389,7 +389,7 @@ export default function ReceptionPage() {
     }
   };
 
-  const handleSelectFromModal = (patient: PatientData) => {
+  const handleSelectFromModal = (patient: Patient) => {
     setPatientForm((prev) => ({ ...prev, ...patient }));
     setShowSearchModal(false);
     setSearchResults([]);

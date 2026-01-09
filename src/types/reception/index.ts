@@ -9,13 +9,19 @@ export type TicketSource = "ONLINE" | "WALKIN";
 
 export interface QueueTicket {
   ticket_id?: string;
-  display_number?: number;
-  ticket_type?: TicketType;
-  source?: TicketSource;
-  status?: TicketStatus;
-  created_at?: string;
   room_id?: number;
+  ticket_type?: TicketType;
+  display_number?: number;
+  status?: TicketStatus;
+  source?: TicketSource;
   encounter_id?: string | null;
+  service_ids?: number[];
+  created_at: string;
+  called_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  room?: any;
+  encounter?: any;
 }
 
 export interface PatientForm {
@@ -33,7 +39,6 @@ export type GetWaitingTicketsQuery = {
   source?: TicketSource;
 };
 
-
 export type CreateTicketPayload = {
   room_id: number;
   ticket_type: "REGISTRATION" | "CONSULTATION" | "SERVICE";
@@ -42,7 +47,7 @@ export type CreateTicketPayload = {
   service_ids?: number[];
 };
 
-export type UpdateTicketDto = {
+export type UpdateTicketPayload = {
   status?: TicketStatus;
   service_ids?: number[];
-}
+};

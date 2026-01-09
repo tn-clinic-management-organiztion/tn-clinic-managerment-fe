@@ -1,9 +1,20 @@
-import { Room } from "./rooms/index";
+import { RefIcd10 } from "./icd10/index";
 import {
-  PatientData,
+  ImageResult,
+  ServiceResult,
+  ServiceRequestItem,
+  Service,
+  ServiceCategory,
+  ChooseServiceRequestItem,
+  CreateServiceRequestPayload,
+  UpdateServiceRequestPayload,
+} from "./service/index";
+import { Room, AssignedRoom } from "./rooms/index";
+import {
+  Patient,
   Gender,
-  CreatePatientDto,
-  UpdatePatientDto,
+  CreatePatientPayload,
+  UpdatePatientPayload,
 } from "./patient/index";
 import {
   QueueTicket,
@@ -12,21 +23,47 @@ import {
   TicketStatus,
   GetWaitingTicketsQuery,
   CreateTicketPayload,
-  UpdateTicketDto,
+  UpdateTicketPayload,
 } from "./reception/index";
 
-export { Gender };
+import {
+  CompleteConsultationPayload,
+  StartConsultationPayload,
+  QueryEncounterPayload,
+  UpdateEncounterPayload,
+  CreateEncounterPayload,
+  EncounterStatus,
+  MedicalEncounter,
+} from "./encounters/index";
+
+export { Gender, EncounterStatus };
 
 export type {
   QueueTicket,
   PatientForm,
   TicketType,
   TicketStatus,
-  PatientData,
+  Patient,
   Room,
+  AssignedRoom,
   GetWaitingTicketsQuery,
   CreateTicketPayload,
-  CreatePatientDto,
-  UpdatePatientDto,
-  UpdateTicketDto,
+  CreatePatientPayload,
+  UpdatePatientPayload,
+  UpdateTicketPayload,
+  ImageResult,
+  ServiceResult,
+  ServiceRequestItem,
+  Service,
+  ServiceCategory,
+  RefIcd10,
+  CompleteConsultationPayload,
+  StartConsultationPayload,
+  QueryEncounterPayload,
+  UpdateEncounterPayload,
+  CreateEncounterPayload,
+  MedicalEncounter,
+  ChooseServiceRequestItem,
+  CreateServiceRequestPayload,
+  UpdateServiceRequestPayload,
 };

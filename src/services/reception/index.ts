@@ -124,17 +124,17 @@ export const postCompleteTicket = async (id: string) => {
   }
 };
 
-export const getLastNumberOfRoomToday = async (id: number) => {
-  try {
-    const response = await axiosInstance.get(
-      `/reception/queue/counters/last-numbers/${id}`
-    );
-    return response.data.data;
-  } catch (error) {
-    console.error(`Get last number of room (id: ${id}) error: `, error);
-    throw error;
-  }
-};
+// export const getLastNumberOfRoomToday = async (id: number) => {
+//   try {
+//     const response = await axiosInstance.get(
+//       `/reception/queue/counters/last-numbers/${id}`
+//     );
+//     return response.data.data;
+//   } catch (error) {
+//     console.error(`Get last number of room (id: ${id}) error: `, error);
+//     throw error;
+//   }
+// };
 
 export const patchUpdateTicket = async (id: string, dto: UpdateTicketDto) => {
   try {

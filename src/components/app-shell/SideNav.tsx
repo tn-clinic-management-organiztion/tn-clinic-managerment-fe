@@ -30,7 +30,6 @@ const getIcon = (path: string) => {
   return <Folder size={20} />;
 };
 
-// Hàm làm đẹp tên menu (VD: /admin/users -> Admin Users)
 const formatLabel = (path: string) => {
   return path
     .replace("/", "")

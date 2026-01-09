@@ -1,4 +1,5 @@
 import axiosInstance from "@/lib/http/client";
+import { CreateServiceRequestPayload } from "@/types";
 import { PageQueryDto } from "@/types/pagination";
 
 export interface QueryServiceDto extends PageQueryDto {
@@ -58,23 +59,8 @@ export const getAssignedServicesByEncounter = async (encounterId: string) => {
   }
 };
 
-export interface ServiceRequestItemDto {
-  service_id: number;
-}
-
-export interface CreateServiceRequestDto {
-  encounter_id: string;
-  requesting_doctor_id: string;
-  notes?: string;
-  items?: ServiceRequestItemDto[];
-}
-
-export interface UpdateServiceRequestsDto
-  extends Partial<CreateServiceRequestDto> {
-}
-
 export const postCreateServiceRequestsByDoctor = async (
-  dto: CreateServiceRequestDto
+  dto: CreateServiceRequestPayload
 ) => {
   try {
     const response = await axiosInstance.post(`service-orders`, dto);

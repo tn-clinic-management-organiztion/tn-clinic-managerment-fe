@@ -9,136 +9,10 @@ import React, { useEffect, useState } from "react";
 import { postCreateServiceResults } from "@/services/results";
 import { cn } from "@/lib/utils";
 import { FileUp, X } from "lucide-react";
+import { AIModel, NormalizedDetection } from "@/types/ai";
+import { SingleSelected } from "@/components/select/SingleSelected";
+import { BBoxPreview } from "@/components/bb-preview/BBoxPreview";
 
-// ---------- helper vẽ bbox ----------
-
-export type NormalizedDetection = {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  label: string;
-  confidence: number;
-  classId: number;
-};
-
-export function normalizeDetections(apiResponse: any): NormalizedDetection[] {
-  let detections: any[] = [];
-  // Trường hợp 1: response là mảng detections luôn
-  if (Array.isArray(apiResponse)) {
-    detections = apiResponse;
-  }
-  // Trường hợp 2: có .data.detections
-  else if (
-    apiResponse?.data?.detections &&
-    Array.isArray(apiResponse.data.detections)
-  ) {
-    detections = apiResponse.data.detections;
-  }
-  // Trường hợp 3: có .detections trực tiếp
-  else if (apiResponse?.detections && Array.isArray(apiResponse.detections)) {
-    detections = apiResponse.detections;
-  }
-
-  return detections
-    .map((d: any) => {
-      const b = d?.bbox;
-      if (!b) return null;
-
-      const x1 = Number(b.x1 ?? b[0]);
-      const y1 = Number(b.y1 ?? b[1]);
-      const x2 = Number(b.x2 ?? b[2]);
-      const y2 = Number(b.y2 ?? b[3]);
-
-      if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
-
-      return {
-        x1,
-        y1,
-        x2,
-        y2,
-        label: d?.class?.name ?? d?.class_name ?? "Unknown",
-        confidence: Number(d?.confidence ?? d?.class?.score ?? 0),
-        classId: Number(d?.class?.id ?? -1),
-      } as NormalizedDetection;
-    })
-    .filter(Boolean) as NormalizedDetection[];
-}
-
-function BBoxPreview(props: { imageUrl: string; detections: any[] }) {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const imgRef = React.useRef<HTMLImageElement | null>(null);
-
-
-  useEffect(() => {
-    const img = imgRef.current;
-    const canvas = canvasRef.current;
-    if (!img || !canvas) return;
-
-    const draw = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const w = img.clientWidth;
-      const h = img.clientHeight;
-      canvas.width = w;
-      canvas.height = h;
-
-      ctx.clearRect(0, 0, w, h);
-
-      // scale theo kích thước hiển thị
-      const natW = img.naturalWidth || w;
-      const natH = img.naturalHeight || h;
-      const sx = w / natW;
-      const sy = h / natH;
-
-      const dets = normalizeDetections(props.detections);
-
-      ctx.font = "20px sans-serif";
-      ctx.strokeStyle = "#ff0000";
-      ctx.fillStyle = "#ff0000";
-      ctx.strokeStyle = "#ff0000";
-      ctx.lineWidth = 3;
-
-      dets.forEach((b) => {
-        const x = b.x1 * sx;
-        const y = b.y1 * sy;
-        const bw = (b.x2 - b.x1) * sx;
-        const bh = (b.y2 - b.y1) * sy;
-        // màu mặc định (không set style global)
-        ctx.strokeRect(x, y, bw, bh);
-
-        const text = `${b.label ?? "obj"}${
-          b.confidence != null ? ` ${(b.confidence * 100).toFixed(0)}%` : ""
-        }`;
-        const tw = ctx.measureText(text).width;
-        ctx.clearRect(x, Math.max(0, y - 16), tw + 8, 16);
-        ctx.fillText(text, x + 6, y - 6);
-      });
-    };
-
-    if (img.complete) draw();
-    img.onload = draw;
-
-    window.addEventListener("resize", draw);
-    return () => window.removeEventListener("resize", draw);
-  }, [props.imageUrl, props.detections]);
-
-  return (
-    <div className="relative w-full">
-      <img
-        ref={imgRef}
-        src={props.imageUrl}
-        alt="preview"
-        className="w-full rounded-[2px] border border-secondary-200"
-      />
-      <canvas
-        ref={canvasRef}
-        className="absolute left-0 top-0 pointer-events-none"
-      />
-    </div>
-  );
-}
 
 // ---------- modal ----------
 export default function CreateResultReportModal(props: {
@@ -170,6 +44,7 @@ export default function CreateResultReportModal(props: {
     previewUrl: string;
     aiLoading?: boolean;
     detections?: any[];
+    model_name?: string;
     uploaded?: {
       image_id: string;
       original_image_url: string;
@@ -244,6 +119,9 @@ export default function CreateResultReportModal(props: {
     });
   };
 
+  // State models
+  const [selectedModel, setSelectedModel] = useState<string>(AIModel.YOLOV12M);
+
   const runAI = async (idx: number) => {
     const img = images[idx];
     if (!img) return;
@@ -252,11 +130,19 @@ export default function CreateResultReportModal(props: {
       prev.map((x, i) => (i === idx ? { ...x, aiLoading: true } : x))
     );
     try {
-      const res = await postAiDetectFromFile(img.file, "yolov12n", 0.25);
+      const res = await postAiDetectFromFile(img.file, selectedModel, 0.25);
+      console.log("AI detect result: ", res);
       const dets = res?.detections ?? res?.data?.detections ?? [];
       setImages((prev) =>
         prev.map((x, i) =>
-          i === idx ? { ...x, detections: dets, aiLoading: false } : x
+          i === idx
+            ? {
+                ...x,
+                detections: dets,
+                aiLoading: false,
+                model_name: selectedModel,
+              }
+            : x
         )
       );
       setActiveIdx(idx); // mở panel bbox
@@ -298,7 +184,6 @@ export default function CreateResultReportModal(props: {
             props.technicianId!,
             resultId
           );
-          // up.data hoặc up trực tiếp tùy BE; bạn tự chỉnh field dưới nếu khác
           const payload = up?.data ?? up;
           return { img, payload };
         })
@@ -316,7 +201,7 @@ export default function CreateResultReportModal(props: {
           await postAiSaveAnnotation({
             image_id: imageId,
             detections: dets,
-            model_name: "yolov12n",
+            model_name: img.model_name,
           });
         })
       );
@@ -338,7 +223,7 @@ export default function CreateResultReportModal(props: {
   const showAiPanel = activeIdx >= 0 && !!images[activeIdx]?.detections?.length;
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[55] bg-black/40 flex items-center justify-center p-4">
       <div
         className={cn(
           "w-full bg-white border border-secondary-200 rounded-[2px] overflow-hidden flex flex-col",
@@ -388,7 +273,8 @@ export default function CreateResultReportModal(props: {
                   detections={images[activeIdx].detections ?? []}
                 />
                 <div className="mt-2 text-[11px] text-secondary-500">
-                  Detections: {images[activeIdx].detections?.length ?? 0}
+                  Detections: {images[activeIdx].detections?.length ?? 0} -
+                  Model: {images[activeIdx].model_name}
                 </div>
               </div>
             )}
@@ -424,56 +310,69 @@ export default function CreateResultReportModal(props: {
                     Chưa chọn ảnh.
                   </div>
                 ) : (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {images.map((img, idx) => (
-                      <div
-                        key={`${img.file.name}-${idx}`}
-                        className={cn(
-                          "border border-secondary-200 bg-white rounded-[2px] overflow-hidden",
-                          idx === activeIdx && "ring-2 ring-primary-200"
-                        )}
-                      >
-                        <button
-                          className="w-full"
+                  <div className="flex flex-col w-full gap-3">
+                    <div className="w-full mt-3 grid grid-cols-3 gap-2">
+                      {images.map((img, idx) => (
+                        <div
+                          key={`${img.file.name}-${idx}`}
+                          className={cn(
+                            "border border-secondary-200 bg-white rounded-[2px] overflow-hidden",
+                            idx === activeIdx && "ring-2 ring-primary-200"
+                          )}
                           onClick={() => {
                             setActiveIdx(idx);
-                            setZoomIdx(idx);
                           }}
-                          title="Click để phóng to"
                         >
-                          <img
-                            src={img.previewUrl}
-                            alt="thumb"
-                            className="w-full h-28 object-cover"
-                          />
-                        </button>
-
-                        <div className="p-2 flex items-center gap-2">
-                          <SquareButton
-                            className="bg-primary-600 hover:bg-primary-700 border-primary-700 text-white"
-                            onClick={() => runAI(idx)}
-                            disabled={!!img.aiLoading}
-                            title="Chạy AI detect"
+                          <button
+                            className="w-full"
+                            onClick={() => {
+                              setActiveIdx(idx);
+                              setZoomIdx(idx);
+                            }}
+                            title="Click để phóng to"
                           >
-                            {img.aiLoading ? "AI..." : "AI"}
-                          </SquareButton>
+                            <img
+                              src={img.previewUrl}
+                              alt="thumb"
+                              className="w-full h-28 object-cover"
+                            />
+                          </button>
 
-                          <SquareButton
-                            className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
-                            onClick={() => removeImage(idx)}
-                            title="Xóa ảnh"
-                          >
-                            Xóa
-                          </SquareButton>
+                          <div className="p-2 flex items-center gap-2">
+                            <SquareButton
+                              className="bg-primary-600 hover:bg-primary-700 border-primary-700 text-white"
+                              onClick={() => runAI(idx)}
+                              disabled={!!img.aiLoading}
+                              title="Chạy AI detect"
+                            >
+                              {img.aiLoading ? "AI..." : "AI"}
+                            </SquareButton>
 
-                          <div className="ml-auto text-[11px] text-secondary-500">
-                            {img.detections
-                              ? `${img.detections.length} box`
-                              : "chưa AI"}
+                            <SquareButton
+                              className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
+                              onClick={() => removeImage(idx)}
+                              title="Xóa ảnh"
+                            >
+                              Xóa
+                            </SquareButton>
+
+                            <div className="ml-auto text-[11px] text-secondary-500">
+                              {img.detections
+                                ? `${img.detections.length} box`
+                                : "chưa AI"}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                    <div>
+                      <SingleSelected
+                        className="border-secondary-900"
+                        selection={Object.values(AIModel)}
+                        value={selectedModel}
+                        onValueChange={setSelectedModel}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -497,7 +396,9 @@ export default function CreateResultReportModal(props: {
                 </div>
                 <TextEditor
                   initialValue={reportBodyRef.current}
-                  onChange={(html) => {reportBodyRef.current=html}}
+                  onChange={(html) => {
+                    reportBodyRef.current = html;
+                  }}
                 />
               </div>
 

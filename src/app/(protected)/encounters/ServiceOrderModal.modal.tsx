@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Search, Trash2, RefreshCcw } from "lucide-react";
 import { cn, Input, SquareButton, Select } from "@/components/ui/square";
 import {
-  CreateServiceRequestDto,
   getAllServices,
   getAssignedServicesByEncounter,
   getRoomsForService,
@@ -13,24 +12,9 @@ import {
 import { getAllServiceCategories } from "@/services/services";
 import { ModalShell } from "@/components/modal/ModalShell";
 import { postCreateTicketForCLS } from "@/services/reception";
-import { CreateTicketPayload, TicketStatus } from "@/types";
+import { CreateTicketPayload, Service, ServiceCategory, TicketStatus, AssignedRoom, Room, CreateServiceRequestPayload } from "@/types";
 import { useSession } from "next-auth/react";
 import { notifySuccess } from "@/components/toast";
-
-type Category = {
-  category_id: number;
-  category_name: string;
-  parent_id?: number | null;
-  is_system_root: boolean;
-};
-
-type Service = {
-  service_id: number;
-  service_name: string;
-  unit_price?: string;
-  category_id?: number | null;
-  category?: Category;
-};
 
 type Props = {
   open: boolean;
@@ -39,11 +23,6 @@ type Props = {
   onCreated?: () => void;
 };
 
-type Room = {
-  room_id: number;
-  room_name?: string;
-  room_type?: string;
-};
 
 const safeMoney = (v?: string) => {
   const n = v ? Number(v) : 0;
@@ -55,17 +34,6 @@ const normalizeList = <T,>(raw: any): T[] => {
   if (Array.isArray(raw)) return raw;
   if (Array.isArray(raw?.data)) return raw.data;
   return [];
-};
-
-type AssignedRoom = {
-  room_id: number;
-  room_name?: string;
-  display_number?: number;
-  services: Array<
-    Service & {
-      category_name?: string;
-    }
-  >;
 };
 
 const statusBadgeClass = (st?: TicketStatus) => {
@@ -98,7 +66,7 @@ export default function ServiceOrderModal(props: Props) {
   const [assignedError, setAssignedError] = useState<string | null>(null);
 
   // categories
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [loadingCat, setLoadingCat] = useState(false);
 
   // query services
@@ -128,7 +96,7 @@ export default function ServiceOrderModal(props: Props) {
           limit: 100,
           parent_id: null,
         } as any);
-        setCategories(normalizeList<Category>(raw));
+        setCategories(normalizeList<ServiceCategory>(raw));
       } catch (e) {
         console.error("Load categories error:", e);
         setCategories([]);
@@ -137,7 +105,7 @@ export default function ServiceOrderModal(props: Props) {
       }
     })();
   }, [props.open]);
-          
+
   useEffect(() => {
     if (!props.open) return;
 
@@ -162,7 +130,7 @@ export default function ServiceOrderModal(props: Props) {
   }, [props.open, page, q, categoryId]);
 
   const total = selected.reduce(
-    (sum, s) => sum + safeMoney(s.svc.unit_price) * s.qty,
+    (sum, s) => sum + safeMoney(String(s.svc.unit_price)) * s.qty,
     0
   );
 
@@ -249,8 +217,8 @@ export default function ServiceOrderModal(props: Props) {
 
         await postCreateTicketForCLS(payloadTicket);
 
-        // 2) create service_request (bắt buộc đi kèm)
-        const payloadServiceRequest: CreateServiceRequestDto = {
+        // 2) create service_request
+        const payloadServiceRequest: CreateServiceRequestPayload = {
           encounter_id: props.encounterId,
           requesting_doctor_id: requestingDoctorId,
           notes: undefined,
@@ -436,7 +404,7 @@ export default function ServiceOrderModal(props: Props) {
                         </td>
 
                         <td className="p-2 text-right font-semibold text-primary-700">
-                          {safeMoney(row.unit_price).toLocaleString("vi-VN")}đ
+                          {safeMoney(String(row.unit_price)).toLocaleString("vi-VN")}đ
                         </td>
                       </tr>
                     ))}
@@ -533,7 +501,7 @@ export default function ServiceOrderModal(props: Props) {
                             </div>
                           </td>
                           <td className="p-2 text-right font-semibold text-primary-700">
-                            {safeMoney(svc.unit_price).toLocaleString("vi-VN")}đ
+                            {safeMoney(String(svc.unit_price)).toLocaleString("vi-VN")}đ
                           </td>
                         </tr>
                       );

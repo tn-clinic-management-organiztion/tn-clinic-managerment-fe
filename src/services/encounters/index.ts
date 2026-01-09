@@ -1,57 +1,8 @@
 import axiosInstance from "@/lib/http/client";
+import { CompleteConsultationPayload, CreateEncounterPayload, QueryEncounterPayload, StartConsultationPayload, UpdateEncounterPayload } from "@/types";
 import { PageQueryDto } from "@/types/pagination";
 
-export enum EncounterStatus {
-  REGISTERED = "REGISTERED",
-  AWAITING_PAYMENT = "AWAITING_PAYMENT",
-  IN_CONSULTATION = "IN_CONSULTATION",
-  AWAITING_CLS = "AWAITING_CLS",
-  IN_CLS = "IN_CLS",
-  CLS_COMPLETED = "CLS_COMPLETED",
-  RESULTS_READY = "RESULTS_READY",
-  COMPLETED = "COMPLETED",
-}
-
-export interface CreateEncounterDto {
-  patient_id?: string;
-  doctor_id?: string;
-  assigned_room_id?: number;
-  initial_symptoms?: string;
-  weight?: number; // Cân nặng (kg)
-  height?: number; // Chiều cao (cm)
-  bmi?: number; // BMI
-  temperature?: number; // Nhiệt độ
-  pulse?: number; // Mạch
-  respiratory_rate?: number; // Nhịp thở
-  bp_systolic?: number; // Huyết áp tâm thu
-  bp_diastolic?: number; // Huyết áp tâm trương
-  sp_o2?: number; // SpO2
-}
-
-export interface UpdateEncounterDto extends CreateEncounterDto {
-  current_status?: EncounterStatus;
-  final_icd_code?: string | null;
-  doctor_conclusion?: string;
-}
-
-export interface QueryEncounterDto extends PageQueryDto {
-  patient_id?: string;
-  doctor_id?: string;
-  assigned_room_id?: number;
-  current_status?: EncounterStatus;
-}
-
-export interface StartConsultationDto {
-  doctor_id: string;
-  assigned_room_id?: number;
-}
-
-export interface CompleteConsultationDto {
-  final_icd_code: string;
-  doctor_conclusion: string;
-}
-
-export const postCreateEncounter = async (dto: CreateEncounterDto) => {
+export const postCreateEncounter = async (dto: CreateEncounterPayload) => {
   try {
     const response = await axiosInstance.post("clinical/encounters", dto);
     return response.data.data;
@@ -77,7 +28,7 @@ export const getEncounterById = async (encounterId: string) => {
 // Lấy các encouter thuộc phòng đó
 export const getEncounterByRoomId = async (assigned_room_id: number) => {
   try {
-    const payload: QueryEncounterDto = {
+    const payload: QueryEncounterPayload = {
       assigned_room_id: assigned_room_id,
     };
     const response = await axiosInstance.get("clinical/encounters", {
@@ -93,7 +44,7 @@ export const getEncounterByRoomId = async (assigned_room_id: number) => {
 // Start consultation
 export const postStartConsultation = async (
   id: string,
-  dto: StartConsultationDto
+  dto: StartConsultationPayload
 ) => {
   try {
     const response = await axiosInstance.post(
@@ -110,7 +61,7 @@ export const postStartConsultation = async (
 // Complete consultation
 export const postCompleteConsultation = async (
   id: string,
-  body: CompleteConsultationDto
+  body: CompleteConsultationPayload
 ) => {
   try {
     const response = await axiosInstance.post(
@@ -124,10 +75,9 @@ export const postCompleteConsultation = async (
   }
 };
 
-// Update những trường thông tin như là hiệu sinh ...
 export const patchUpdateConsultation = async (
   id: string,
-  dto: UpdateEncounterDto
+  dto: UpdateEncounterPayload
 ) => {
   try {
     const response = await axiosInstance.patch(

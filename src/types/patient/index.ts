@@ -4,8 +4,8 @@ export enum Gender {
   KHAC = 'KHAC'
 }
 
-export interface PatientData {
-  patient_id?: string;
+export interface Patient {
+  patient_id: string;
   cccd?: string;
   full_name: string;
   dob: string;
@@ -16,7 +16,7 @@ export interface PatientData {
   allergy_history?: string;
 }
 
-export interface CreatePatientDto {
+export interface CreatePatientPayload {
   cccd?: string;
   full_name: string;
   dob: string;
@@ -27,7 +27,7 @@ export interface CreatePatientDto {
   allergy_history?: string;
 }
 
-export interface UpdatePatientDto {
+export interface UpdatePatientPayload {
   cccd?: string;
   full_name: string;
   dob: string;

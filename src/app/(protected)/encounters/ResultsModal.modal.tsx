@@ -11,29 +11,7 @@ import { getAllServices } from "@/services/services";
 import { ModalShell } from "@/components/modal/ModalShell";
 import { useSession } from "next-auth/react";
 import { getQueueTicketConsultationByEncounterIdAndTicketType } from "@/services/reception";
-
-// ===== Types =====
-type ServiceRequestItemDto = {
-  item_id: string;
-  request_id: string;
-  service_id: number;
-};
-
-type ServiceResultDto = {
-  result_id: string;
-  request_item_id: string;
-  technician_id: string;
-  main_conclusion?: string;
-  report_body_html?: string;
-  is_abnormal: boolean;
-  result_time: string;
-  images?: any[];
-};
-
-type ServiceLite = {
-  service_id: number;
-  service_name: string;
-};
+import { Service, ServiceRequestItem, ServiceResult } from "@/types";
 
 type Props = {
   open: boolean;
@@ -59,22 +37,22 @@ const fmt = (v?: string | null) => {
 export default function ResultsModal(props: Props) {
   const { data: session, status } = useSession();
 
-  const [requestItems, setRequestItems] = useState<ServiceRequestItemDto[]>([]);
+  const [requestItems, setRequestItems] = useState<ServiceRequestItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Service results map: item_id -> ServiceResultDto (giống KTV)
-  const [resultsMap, setResultsMap] = useState<Map<string, ServiceResultDto>>(
+  // Service results map: item_id -> ServiceResult
+  const [resultsMap, setResultsMap] = useState<Map<string, ServiceResult>>(
     new Map()
   );
 
-  // Service name map (giống KTV)
+  // Service name map
   const [serviceMap, setServiceMap] = useState<Map<number, string>>(new Map());
 
   // Show modal state (giống KTV)
   const [openShowModal, setOpenShowModal] = useState(false);
   const [showModalResult, setShowModalResult] =
-    useState<ServiceResultDto | null>(null);
+    useState<ServiceResult | null>(null);
   const [showModalServiceLabel, setShowModalServiceLabel] =
     useState<string>("");
 
@@ -85,7 +63,7 @@ export default function ResultsModal(props: Props) {
     (async () => {
       try {
         const raw = await getAllServices({ page: 1, limit: 100 } as any);
-        const list = normalizeList<ServiceLite>(raw);
+        const list = normalizeList<Service>(raw);
         const m = new Map<number, string>();
         list.forEach((s) => m.set(s.service_id, s.service_name));
         setServiceMap(m);
@@ -96,8 +74,8 @@ export default function ResultsModal(props: Props) {
   }, [props.open]);
 
   // Load results for items
-  const loadResultsForItems = async (items: ServiceRequestItemDto[]) => {
-    const newMap = new Map<string, ServiceResultDto>();
+  const loadResultsForItems = async (items: ServiceRequestItem[]) => {
+    const newMap = new Map<string, ServiceResult>();
 
     await Promise.all(
       items.map(async (item) => {
@@ -134,7 +112,7 @@ export default function ResultsModal(props: Props) {
             props.encounterId
           );
         const serviceIdConsultation = queueTicketEncounter[0]?.service_ids[0];
-        const items = normalizeList<ServiceRequestItemDto>(res);
+        const items = normalizeList<ServiceRequestItem>(res);
         const items_filter = items.filter(
           (i) => i.service_id != serviceIdConsultation
         );
@@ -165,8 +143,8 @@ export default function ResultsModal(props: Props) {
 
   // Open show modal
   const openShowReport = (
-    item: ServiceRequestItemDto,
-    result: ServiceResultDto
+    item: ServiceRequestItem,
+    result: ServiceResult
   ) => {
     const name =
       serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
@@ -357,7 +335,7 @@ export default function ResultsModal(props: Props) {
         </div>
       </ModalShell>
 
-      {/* Show Result Modal - Giống KTV */}
+      {/* Show Result Modal */}
       <ShowResultReportModal
         open={openShowModal}
         onClose={() => {

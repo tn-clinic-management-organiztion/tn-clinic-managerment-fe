@@ -11,7 +11,6 @@ import {
   Search,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import axiosInstance from "@/lib/http/client";
 
 import {
   Field,
@@ -27,62 +26,19 @@ import ResultsModal from "./ResultsModal.modal";
 
 // ====== encounters services ======
 import {
-  EncounterStatus,
   getEncounterById,
   getEncounterByRoomId,
   patchUpdateConsultation,
   postCompleteConsultation,
   postStartConsultation,
-  type UpdateEncounterDto,
 } from "@/services/encounters";
 import { getAllIcd10 } from "@/services/icd10";
 import { useDebounce } from "@/hook/useDebounce";
-import { toast } from "react-toastify";
 import { notifyError, notifySuccess } from "@/components/toast";
-
-// ====== FE types ======
-type PatientLite = {
-  patient_id: string;
-  full_name: string;
-  phone?: string;
-  gender?: string;
-  dob?: string;
-};
-
-type RefIcd10Lite = {
-  icd_code: string;
-  name_vi: string;
-  is_leaf: boolean;
-};
-
-export type MedicalEncounterDto = {
-  encounter_id: string;
-  visit_date: string;
-  current_status: EncounterStatus;
-
-  patient_id?: string | null;
-  doctor_id?: string | null;
-  assigned_room_id?: number | null;
-
-  final_icd_code?: string | null;
-  icd_ref?: RefIcd10Lite | null;
-
-  patient?: PatientLite | null;
-
-  initial_symptoms?: string | null;
-
-  weight?: number | null;
-  height?: number | null;
-  bmi?: number | null;
-  temperature?: number | null;
-  pulse?: number | null;
-  respiratory_rate?: number | null;
-  bp_systolic?: number | null;
-  bp_diastolic?: number | null;
-  sp_o2?: number | null;
-
-  doctor_conclusion?: string | null;
-};
+import { useQueueSocket } from "@/hook/useQueueSocket";
+import { getQueueTicketsTodayByRoomId } from "@/services/reception";
+import { EncounterStatus, MedicalEncounter, UpdateEncounterPayload } from "@/types";
+import { RefIcd10 } from "@/types/icd10";
 
 // ====== Helpers ======
 const calcBMI = (w?: number | null, h?: number | null) => {
@@ -107,6 +63,23 @@ const waitingBucket = (s: EncounterStatus) =>
 
 export default function DoctorPage() {
   const { data: session } = useSession();
+  const { isConnected, tickets, lastEvent, joinRoom } = useQueueSocket({
+    roomId: session?.user.assigned_room_id,
+    autoConnect: true,
+  });
+
+  useEffect(() => {
+    if (!lastEvent) return;
+
+    switch (lastEvent.type) {
+      case "ticket:created":
+        setQueue((q) => [...q, lastEvent.ticket.encounter]);
+        break;
+
+      default:
+        break;
+    }
+  }, [lastEvent]);
 
   const doctorId = (session?.user as any)?.id as string | undefined;
   const roomIdFromSession = (session?.user as any)?.assigned_room_id as
@@ -115,15 +88,15 @@ export default function DoctorPage() {
 
   // Right list (queue)
   const [tab, setTab] = useState<"WAITING" | "IN_PROGRESS">("WAITING");
-  const [queue, setQueue] = useState<MedicalEncounterDto[]>([]);
+  const [queue, setQueue] = useState<MedicalEncounter[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Current encounter
-  const [current, setCurrent] = useState<MedicalEncounterDto | null>(null);
+  const [current, setCurrent] = useState<MedicalEncounter | null>(null);
 
   // ICD10 search
   const [icdQuery, setIcdQuery] = useState("");
-  const [icdList, setIcdList] = useState<RefIcd10Lite[]>([]);
+  const [icdList, setIcdList] = useState<RefIcd10[]>([]);
   const [icdLoading, setIcdLoading] = useState(false);
   const [icdOpen, setIcdOpen] = useState(false);
   const [icdActiveIndex, setIcdActiveIndex] = useState(-1);
@@ -131,7 +104,7 @@ export default function DoctorPage() {
   const icdBoxRef = React.useRef<HTMLDivElement | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const suppressNextSearchRef = React.useRef(false);
-  const cacheRef = React.useRef(new Map<string, RefIcd10Lite[]>());
+  const cacheRef = React.useRef(new Map<string, RefIcd10[]>());
 
   const debouncedIcdQuery = useDebounce(icdQuery, 250); //
 
@@ -190,7 +163,7 @@ export default function DoctorPage() {
           { search: q, page: 1, limit: 20 },
           ac.signal
         );
-        const list = (res?.data ?? []) as RefIcd10Lite[];
+        const list = (res?.data ?? []) as RefIcd10[];
 
         // lưu cache
         cacheRef.current.set(q, list);
@@ -212,7 +185,7 @@ export default function DoctorPage() {
     return () => ac.abort();
   }, [debouncedIcdQuery]);
 
-  const selectIcd = (x: RefIcd10Lite) => {
+  const selectIcd = (x: RefIcd10) => {
     setCurrent((p) =>
       p
         ? {
@@ -239,8 +212,13 @@ export default function DoctorPage() {
     setLoading(true);
     try {
       if (roomIdFromSession) {
-        const data = await getEncounterByRoomId(roomIdFromSession);
-        setQueue(data ?? []);
+        const data: any[] = await getQueueTicketsTodayByRoomId(
+          roomIdFromSession
+        );
+        const dataEncounter = data.map(
+          (x) => x.encounter
+        ) as MedicalEncounter[];
+        setQueue(dataEncounter ?? []);
       }
     } catch (e) {
       console.error("loadQueue error:", e);
@@ -278,9 +256,9 @@ export default function DoctorPage() {
   };
 
   // ===== Start consultation =====
-  const startConsultation = async (encounter: MedicalEncounterDto) => {
+  const startConsultation = async (encounter: MedicalEncounter) => {
     if (!doctorId) {
-      alert("Thiếu doctor_id trong session (session.user.id).");
+      notifyError("Thiếu doctor_id trong session (session.user.id).");
       return;
     }
 
@@ -311,7 +289,7 @@ export default function DoctorPage() {
     try {
       const bmi = current.bmi ?? calcBMI(current.weight, current.height);
 
-      const dto: UpdateEncounterDto = {
+      const dto: UpdateEncounterPayload = {
         // symptoms
         initial_symptoms: current.initial_symptoms ?? undefined,
 
@@ -336,6 +314,7 @@ export default function DoctorPage() {
       await openEncounter(current.encounter_id);
       await loadQueue();
     } catch (e) {
+      notifyError(`Lưu thông tin khám bệnh thất bại: ${e}`);
       console.error("saveEncounter error:", e);
     } finally {
       setLoading(false);
@@ -350,7 +329,7 @@ export default function DoctorPage() {
     const conclusion = (current.doctor_conclusion ?? "").trim();
 
     if (!finalIcd || !conclusion) {
-      alert(
+      notifyError(
         "Cần nhập ICD10 (chẩn đoán cuối) và Kết luận bác sĩ trước khi hoàn thành."
       );
       return;

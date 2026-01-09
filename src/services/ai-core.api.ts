@@ -17,7 +17,7 @@ export const getListResultImages = async (
   }
   try {
     const res = await axiosInstance.get(`/ai-core/result-images`, { params });
-    // Xử lý trường hợp Interceptor bọc data
+    
     const body = res.data || {};
     return body.data ? body.data : body;
   } catch (error) {
@@ -86,7 +86,7 @@ export const rejectHumanAnnotation = async (
   }
 };
 
-// 6. Deprecate (MỚI: Nhận reason thay vì boolean)
+// 6. Deprecate
 // Dùng khi muốn đánh dấu thủ công 1 bản ghi Approved là lỗi thời
 export const setAnnotationDeprecated = async (
   annotation_id: string,
@@ -134,9 +134,9 @@ export const postDownloadAnnotation = async (dto: any) => {
   try {
     const res = await axiosInstance.post(
       "/ai-core/export/yolo.zip",
-      dto, // ✅ body DTO export (project_id, v.v.)
+      dto,
       {
-        responseType: "blob", // ✅ config (đúng chỗ)
+        responseType: "blob",
       }
     );
 

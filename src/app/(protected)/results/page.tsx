@@ -4,12 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { RefreshCcw, CheckCircle2, Clock, Eye, Edit } from "lucide-react";
 import { useSession } from "next-auth/react";
 
-import {
-  Field,
-  SquareButton,
-  TabButton,
-  cn,
-} from "@/components/ui/square";
+import { Field, SquareButton, TabButton, cn } from "@/components/ui/square";
 
 import {
   getQueueTicketsTodayByRoomId,
@@ -24,67 +19,17 @@ import { getFindResultByRequestItemId } from "@/services/results";
 import { getAllServices } from "@/services/services";
 import ResultReportModal from "@/app/(protected)/results/CreateResultReportModal.modal";
 import ShowResultReportModal from "@/app/(protected)/results/ShowResultReportModal.modal";
-
-// ===== Types =====
-type QueueStatus =
-  | "WAITING"
-  | "CALLED"
-  | "IN_PROGRESS"
-  | "COMPLETED"
-  | "SKIPPED"
-  | (string & {});
-type QueueTicketType =
-  | "REGISTRATION"
-  | "CONSULTATION"
-  | "SERVICE"
-  | (string & {});
-
-type Patient = {
-  patient_id: string;
-  full_name: string;
-  dob?: string;
-  gender?: string;
-};
-
-type Encounter = {
-  encounter_id: string;
-  patient?: Patient | null;
-  visit_date?: string;
-};
-
-type QueueTicketDto = {
-  ticket_id: string;
-  encounter_id?: string | null;
-  room_id: number;
-  encounter?: Encounter | null;
-  ticket_type: QueueTicketType;
-  display_number: number;
-  status: QueueStatus;
-  created_at: string;
-  service_ids?: number[] | null;
-};
-
-type ServiceRequestItemDto = {
-  item_id: string;
-  request_id: string;
-  service_id: number;
-};
-
-type ServiceResultDto = {
-  result_id: string;
-  request_item_id: string;
-  technician_id: string;
-  main_conclusion?: string;
-  report_body_html?: string;
-  is_abnormal: boolean;
-  result_time: string;
-  images?: any[];
-};
-
-type ServiceLite = {
-  service_id: number;
-  service_name: string;
-};
+import {
+  QueueTicket,
+  TicketStatus,
+  Patient,
+  MedicalEncounter,
+  ServiceRequestItem,
+  ServiceResult,
+  Service,
+} from "@/types";
+import { useQueueSocket } from "@/hook/useQueueSocket";
+import { notifyError } from "@/components/toast";
 
 // ===== Helpers =====
 const fmt = (v?: string | null) => {
@@ -94,8 +39,8 @@ const fmt = (v?: string | null) => {
   return d.toLocaleString("vi-VN");
 };
 
-const waitingBucket = (s: QueueStatus) => s === "WAITING";
-const inProgressBucket = (s: QueueStatus) =>
+const waitingBucket = (s: TicketStatus) => s === "WAITING";
+const inProgressBucket = (s: TicketStatus) =>
   s === "CALLED" || s === "IN_PROGRESS";
 
 export default function ResultsPage() {
@@ -106,31 +51,56 @@ export default function ResultsPage() {
     | undefined;
   const technicianId = (session?.user as any)?.id as string | undefined;
 
+  const { isConnected, tickets, lastEvent, joinRoom } = useQueueSocket({
+    roomId: session?.user.assigned_room_id,
+    autoConnect: true,
+  });
+
+  useEffect(() => {
+    if (!lastEvent) return;
+
+    switch (lastEvent.type) {
+      case "ticket:created":
+        setQueue((q) => [...q, lastEvent.ticket]);
+        break;
+
+      default:
+        break;
+    }
+  }, [lastEvent]);
+
   // Queue state
   const [tab, setTab] = useState<"WAITING" | "IN_PROGRESS">("WAITING");
-  const [queue, setQueue] = useState<QueueTicketDto[]>([]);
+  const [queue, setQueue] = useState<QueueTicket[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(false);
 
   // Selected ticket + data
-  const [currentTicket, setCurrentTicket] = useState<QueueTicketDto | null>(null);
-  const [requestItems, setRequestItems] = useState<ServiceRequestItemDto[]>([]);
+  const [currentTicket, setCurrentTicket] = useState<QueueTicket | null>(null);
+  const [requestItems, setRequestItems] = useState<ServiceRequestItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
 
   // Service results map: item_id -> ServiceResultDto
-  const [resultsMap, setResultsMap] = useState<Map<string, ServiceResultDto>>(new Map());
+  const [resultsMap, setResultsMap] = useState<Map<string, ServiceResult>>(
+    new Map()
+  );
 
   // Service name map
   const [serviceMap, setServiceMap] = useState<Map<number, string>>(new Map());
 
   // Create/Edit modal state
   const [openCreateModal, setOpenCreateModal] = useState(false);
-  const [createModalItemId, setCreateModalItemId] = useState<string | null>(null);
-  const [createModalServiceLabel, setCreateModalServiceLabel] = useState<string>("");
+  const [createModalItemId, setCreateModalItemId] = useState<string | null>(
+    null
+  );
+  const [createModalServiceLabel, setCreateModalServiceLabel] =
+    useState<string>("");
 
   // Show modal state
   const [openShowModal, setOpenShowModal] = useState(false);
-  const [showModalResult, setShowModalResult] = useState<ServiceResultDto | null>(null);
-  const [showModalServiceLabel, setShowModalServiceLabel] = useState<string>("");
+  const [showModalResult, setShowModalResult] =
+    useState<ServiceResult | null>(null);
+  const [showModalServiceLabel, setShowModalServiceLabel] =
+    useState<string>("");
 
   const normalizeList = <T,>(raw: any): T[] => {
     if (Array.isArray(raw)) return raw;
@@ -144,11 +114,11 @@ export default function ResultsPage() {
     setLoadingQueue(true);
     try {
       const res = await getQueueTicketsTodayByRoomId(roomIdFromSession);
-      const list = normalizeList<QueueTicketDto>(res);
+      const list = normalizeList<QueueTicket>(res);
       setQueue(list ?? []);
     } catch (e) {
       console.error("loadQueue error:", e);
-      alert("Lỗi get ticket cho roomID");
+      notifyError("Lỗi get ticket cho roomID");
       setQueue([]);
     } finally {
       setLoadingQueue(false);
@@ -168,7 +138,7 @@ export default function ResultsPage() {
     (async () => {
       try {
         const raw = await getAllServices({ page: 1, limit: 50 } as any);
-        const list = normalizeList<ServiceLite>(raw);
+        const list = normalizeList<Service>(raw);
         const m = new Map<number, string>();
         list.forEach((s) => m.set(s.service_id, s.service_name));
         setServiceMap(m);
@@ -179,18 +149,18 @@ export default function ResultsPage() {
   }, [sessionStatus]);
 
   const waitingList = useMemo(
-    () => queue.filter((x) => waitingBucket(x.status)),
+    () => queue.filter((x) => waitingBucket(x.status as TicketStatus)),
     [queue]
   );
   const inProgressList = useMemo(
-    () => queue.filter((x) => inProgressBucket(x.status)),
+    () => queue.filter((x) => inProgressBucket(x.status as TicketStatus)),
     [queue]
   );
 
   // ===== Load results for items =====
-  const loadResultsForItems = async (items: ServiceRequestItemDto[]) => {
-    const newMap = new Map<string, ServiceResultDto>();
-    
+  const loadResultsForItems = async (items: ServiceRequestItem[]) => {
+    const newMap = new Map<string, ServiceResult>();
+
     await Promise.all(
       items.map(async (item) => {
         try {
@@ -209,19 +179,19 @@ export default function ResultsPage() {
   };
 
   // ===== When select a ticket: load request items + results =====
-  const openTicket = async (t: QueueTicketDto) => {
+  const openTicket = async (t: QueueTicket) => {
     setCurrentTicket(t);
     setRequestItems([]);
     setResultsMap(new Map());
-    
+
     if (!t.encounter_id) return;
 
     setLoadingItems(true);
     try {
       const res = await gettRequestItemsByEncouter(t.encounter_id);
-      const items = normalizeList<ServiceRequestItemDto>(res);
+      const items = normalizeList<ServiceRequestItem>(res);
       setRequestItems(items ?? []);
-      
+
       // Load results cho tất cả items
       if (items && items.length > 0) {
         await loadResultsForItems(items);
@@ -298,7 +268,7 @@ export default function ResultsPage() {
   };
 
   // ===== Open create/edit modal =====
-  const openCreateReport = (item: ServiceRequestItemDto) => {
+  const openCreateReport = (item: ServiceRequestItem) => {
     const name =
       serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setCreateModalServiceLabel(`${item.service_id} • ${name}`);
@@ -307,7 +277,10 @@ export default function ResultsPage() {
   };
 
   // ===== Open show modal =====
-  const openShowReport = (item: ServiceRequestItemDto, result: ServiceResultDto) => {
+  const openShowReport = (
+    item: ServiceRequestItem,
+    result: ServiceResult
+  ) => {
     const name =
       serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setShowModalServiceLabel(`${item.service_id} • ${name}`);
@@ -318,12 +291,12 @@ export default function ResultsPage() {
   // ===== Reload current ticket data after saving =====
   const reloadCurrentTicketData = async () => {
     if (!currentTicket?.encounter_id) return;
-    
+
     try {
       const res = await gettRequestItemsByEncouter(currentTicket.encounter_id);
-      const items = normalizeList<ServiceRequestItemDto>(res);
+      const items = normalizeList<ServiceRequestItem>(res);
       setRequestItems(items ?? []);
-      
+
       if (items && items.length > 0) {
         await loadResultsForItems(items);
       }
@@ -376,14 +349,22 @@ export default function ResultsPage() {
                 <>
                   <SquareButton
                     className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
-                    onClick={() => skipTicket(currentTicket.ticket_id)}
+                    onClick={() => {
+                      if (currentTicket.ticket_id) {
+                        skipTicket(currentTicket.ticket_id);
+                      }
+                    }}
                   >
                     Bỏ qua
                   </SquareButton>
 
                   <SquareButton
                     className="bg-success-600 hover:bg-success-700 border-success-700 text-white"
-                    onClick={() => completeTicket(currentTicket.ticket_id)}
+                    onClick={() => {
+                      if (currentTicket.ticket_id) {
+                        completeTicket(currentTicket.ticket_id);
+                      }
+                    }}
                     disabled={!allReported}
                     title={
                       !allReported
@@ -521,7 +502,9 @@ export default function ResultsPage() {
                                       <>
                                         <SquareButton
                                           className="bg-primary-100 hover:bg-primary-200 border-primary-200 text-primary-800"
-                                          onClick={() => openShowReport(it, result)}
+                                          onClick={() =>
+                                            openShowReport(it, result)
+                                          }
                                           title="Xem báo cáo"
                                         >
                                           <Eye size={14} />
@@ -611,7 +594,11 @@ export default function ResultsPage() {
                     {t.status === "WAITING" ? (
                       <SquareButton
                         className="col-span-2 bg-primary-600 hover:bg-primary-700 border-primary-700 text-white"
-                        onClick={() => callTicket(t.ticket_id)}
+                        onClick={() => {
+                          if (t.ticket_id) {
+                            callTicket(t.ticket_id);
+                          }
+                        }}
                         disabled={loadingQueue}
                       >
                         Gọi
@@ -621,7 +608,9 @@ export default function ResultsPage() {
                         className="col-span-2 bg-primary-100 hover:bg-primary-200 border-primary-200 text-primary-800"
                         onClick={() => {
                           if (t.status === "CALLED") {
-                            startTicket(t.ticket_id);
+                            if (t.ticket_id) {
+                              startTicket(t.ticket_id);
+                            }
                           }
                           openTicket(t);
                         }}
