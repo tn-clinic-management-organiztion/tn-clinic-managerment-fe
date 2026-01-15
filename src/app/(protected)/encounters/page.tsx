@@ -27,7 +27,6 @@ import ResultsModal from "./ResultsModal.modal";
 // ====== encounters services ======
 import {
   getEncounterById,
-  getEncounterByRoomId,
   patchUpdateConsultation,
   postCompleteConsultation,
   postStartConsultation,
@@ -37,8 +36,13 @@ import { useDebounce } from "@/hook/useDebounce";
 import { notifyError, notifySuccess } from "@/components/toast";
 import { useQueueSocket } from "@/hook/useQueueSocket";
 import { getQueueTicketsTodayByRoomId } from "@/services/reception";
-import { EncounterStatus, MedicalEncounter, UpdateEncounterPayload } from "@/types";
+import {
+  EncounterStatus,
+  MedicalEncounter,
+  UpdateEncounterPayload,
+} from "@/types";
 import { RefIcd10 } from "@/types/icd10";
+import { toast } from "react-toastify";
 
 // ====== Helpers ======
 const calcBMI = (w?: number | null, h?: number | null) => {
@@ -106,7 +110,7 @@ export default function DoctorPage() {
   const suppressNextSearchRef = React.useRef(false);
   const cacheRef = React.useRef(new Map<string, RefIcd10[]>());
 
-  const debouncedIcdQuery = useDebounce(icdQuery, 250); //
+  const debouncedIcdQuery = useDebounce(icdQuery, 250);
 
   // đóng dropdown khi click ra ngoài
   useEffect(() => {
@@ -121,17 +125,17 @@ export default function DoctorPage() {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  // auto call API khi gõ
+  // auto call API
   useEffect(() => {
     const q = debouncedIcdQuery.trim();
 
-    // nếu vừa chọn item thì bỏ qua 1 lần search (tránh gọi lại vì set input)
+    // nếu vừa chọn item thì bỏ qua 1 lần search
     if (suppressNextSearchRef.current) {
       suppressNextSearchRef.current = false;
       return;
     }
 
-    // rule: ít nhất 2 ký tự mới search (đỡ nặng DB)
+    // rule: min 2 ký tự 
     if (q.length < 1) {
       abortRef.current?.abort();
       setIcdList([]);
@@ -141,7 +145,7 @@ export default function DoctorPage() {
       return;
     }
 
-    // cache (gõ lại không gọi API)
+    // cache
     const cached = cacheRef.current.get(q);
     if (cached) {
       setIcdList(cached);
@@ -264,8 +268,6 @@ export default function DoctorPage() {
 
     setLoading(true);
     try {
-      // NOTE: param đầu của postStartConsultation trong file services tên là doctor_id,
-      // nhưng nghiệp vụ start theo encounter => mình truyền encounter_id vào đây.
       await postStartConsultation(encounter.encounter_id, {
         doctor_id: doctorId,
         assigned_room_id:
@@ -327,8 +329,8 @@ export default function DoctorPage() {
 
     const finalIcd = (current.final_icd_code ?? "").trim();
     const conclusion = (current.doctor_conclusion ?? "").trim();
-
     if (!finalIcd || !conclusion) {
+      console.log("Gọi notifyError!");
       notifyError(
         "Cần nhập ICD10 (chẩn đoán cuối) và Kết luận bác sĩ trước khi hoàn thành."
       );

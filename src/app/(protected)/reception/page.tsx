@@ -43,14 +43,9 @@ import {
   postSkipTicket,
   postStartTicket,
 } from "@/services/reception";
-
-import { toast } from "react-toastify";
+import { notifyError, notifySuccess } from "@/components/toast";
 
 export default function ReceptionPage() {
-  // Toastify
-  const notifySuccess = (content: string) => toast.success(content);
-  const notifyError = (content: string) => toast.error(content);
-
   // =========================
   // 1) SESSION
   // =========================

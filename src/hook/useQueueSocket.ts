@@ -34,9 +34,9 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     if (!autoConnect) return;
 
     // Kết nối tới namespace /queue
-    console.log(
-      `Connecting to queue socket at ${process.env.NEXT_PUBLIC_SERVER_URL}/queue`
-    );
+    // console.log(
+    //   `Connecting to queue socket at ${process.env.NEXT_PUBLIC_SERVER_URL}/queue`
+    // );
     const socket = io(`${process.env.NEXT_PUBLIC_SERVER_URL}/queue`, {
       transports: ["websocket", "polling"],
       reconnection: true,
@@ -48,7 +48,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
 
     // ==================== CONNECTION EVENTS ====================
     socket.on("connect", () => {
-      console.log("Socket connected:", socket.id);
+      // console.log("Socket connected:", socket.id);
       setIsConnected(true);
 
       // Tự động join room nếu có roomId
@@ -58,18 +58,18 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("disconnect", () => {
-      console.log("Socket disconnected");
+      // console.log("Socket disconnected");
       setIsConnected(false);
     });
 
     socket.on("joined_room", (data) => {
-      console.log("Joined room:", data);
+      // console.log("Joined room:", data);
     });
 
     // ==================== TICKET EVENTS ====================
 
     socket.on("ticket:created", (ticket: QueueTicket) => {
-      console.log("New ticket:", ticket);
+      // console.log("New ticket:", ticket);
       setLastEvent({ type: "ticket:created", ticket });
 
       // Thêm ticket mới vào cuối danh sách
@@ -77,7 +77,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("ticket:called", (ticket: QueueTicket) => {
-      console.log("Ticket called:", ticket);
+      // console.log("Ticket called:", ticket);
       setLastEvent({ type: "called", ticket });
 
       // Cập nhật ticket trong danh sách
@@ -87,7 +87,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("ticket:started", (ticket: QueueTicket) => {
-      console.log("Ticket started:", ticket);
+      // console.log("Ticket started:", ticket);
       setLastEvent({ type: "started", ticket });
 
       setTickets((prev) =>
@@ -96,7 +96,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("ticket:completed", (ticket: QueueTicket) => {
-      console.log("Ticket completed:", ticket);
+      // console.log("Ticket completed:", ticket);
       setLastEvent({ type: "completed", ticket });
 
       setTickets((prev) =>
@@ -105,7 +105,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("ticket:skipped", (ticket: QueueTicket) => {
-      console.log("Ticket skipped:", ticket);
+      // console.log("Ticket skipped:", ticket);
       setLastEvent({ type: "skipped", ticket });
 
       setTickets((prev) =>
@@ -114,7 +114,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
     });
 
     socket.on("ticket:updated", (ticket: QueueTicket) => {
-      console.log("Ticket updated:", ticket);
+      // console.log("Ticket updated:", ticket);
       setLastEvent({ type: "updated", ticket });
 
       setTickets((prev) =>
@@ -124,7 +124,7 @@ export const useQueueSocket = (options: UseQueueSocketOptions = {}) => {
 
     // ==================== CLEANUP ====================
     return () => {
-      console.log("Cleaning up socket connection");
+      // console.log("Cleaning up socket connection");
       socket.disconnect();
     };
   }, [autoConnect, roomId]);
