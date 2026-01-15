@@ -14,11 +14,12 @@ import {
   postCompleteTicket,
 } from "@/services/reception";
 
-import { gettRequestItemsByEncouter } from "@/services/services";
+import { getRequestItemsByEncouter } from "@/services/services";
 import { getFindResultByRequestItemId } from "@/services/results";
 import { getAllServices } from "@/services/services";
 import ResultReportModal from "@/app/(protected)/results/CreateResultReportModal.modal";
 import ShowResultReportModal from "@/app/(protected)/results/ShowResultReportModal.modal";
+import UpdateResultReportModal from "@/app/(protected)/results/UpdateResultReportModal.modal";
 import {
   QueueTicket,
   TicketStatus,
@@ -87,20 +88,21 @@ export default function ResultsPage() {
   // Service name map
   const [serviceMap, setServiceMap] = useState<Map<number, string>>(new Map());
 
-  // Create/Edit modal state
+  // ===== CREATE MODAL STATE =====
   const [openCreateModal, setOpenCreateModal] = useState(false);
-  const [createModalItemId, setCreateModalItemId] = useState<string | null>(
-    null
-  );
-  const [createModalServiceLabel, setCreateModalServiceLabel] =
-    useState<string>("");
+  const [createModalItemId, setCreateModalItemId] = useState<string | null>(null);
+  const [createModalServiceLabel, setCreateModalServiceLabel] = useState<string>("");
 
-  // Show modal state
+  // ===== SHOW MODAL STATE =====
   const [openShowModal, setOpenShowModal] = useState(false);
-  const [showModalResult, setShowModalResult] =
-    useState<ServiceResult | null>(null);
-  const [showModalServiceLabel, setShowModalServiceLabel] =
-    useState<string>("");
+  const [showModalResult, setShowModalResult] = useState<ServiceResult | null>(null);
+  const [showModalServiceLabel, setShowModalServiceLabel] = useState<string>("");
+
+  // ===== UPDATE MODAL STATE (RIÊNG BIỆT) =====
+  const [openUpdateModal, setOpenUpdateModal] = useState(false);
+  const [updateModalResult, setUpdateModalResult] = useState<ServiceResult | null>(null);
+  const [updateModalServiceLabel, setUpdateModalServiceLabel] = useState<string>("");
+  const [updateModalItemId, setUpdateModalItemId] = useState<string | null>(null);
 
   const normalizeList = <T,>(raw: any): T[] => {
     if (Array.isArray(raw)) return raw;
@@ -169,6 +171,7 @@ export default function ResultsPage() {
           if (results && results.length > 0) {
             newMap.set(item.item_id, results[0]);
           }
+          console.log("result[0]: ", results[0]);
         } catch (e) {
           // Item chưa có result, bỏ qua
         }
@@ -188,7 +191,7 @@ export default function ResultsPage() {
 
     setLoadingItems(true);
     try {
-      const res = await gettRequestItemsByEncouter(t.encounter_id);
+      const res = await getRequestItemsByEncouter(t.encounter_id);
       const items = normalizeList<ServiceRequestItem>(res);
       setRequestItems(items ?? []);
 
@@ -267,25 +270,31 @@ export default function ResultsPage() {
     }
   };
 
-  // ===== Open create/edit modal =====
+  // ===== MODAL HANDLERS =====
+  
+  // Mở modal tạo báo cáo mới
   const openCreateReport = (item: ServiceRequestItem) => {
-    const name =
-      serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setCreateModalServiceLabel(`${item.service_id} • ${name}`);
     setCreateModalItemId(item.item_id);
     setOpenCreateModal(true);
   };
 
-  // ===== Open show modal =====
-  const openShowReport = (
-    item: ServiceRequestItem,
-    result: ServiceResult
-  ) => {
-    const name =
-      serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+  // Mở modal xem báo cáo (read-only)
+  const openShowReport = (item: ServiceRequestItem, result: ServiceResult) => {
+    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setShowModalServiceLabel(`${item.service_id} • ${name}`);
     setShowModalResult(result);
     setOpenShowModal(true);
+  };
+
+  // Mở modal sửa báo cáo
+  const openUpdateReport = (item: ServiceRequestItem, result: ServiceResult) => {
+    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+    setUpdateModalServiceLabel(`${item.service_id} • ${name}`);
+    setUpdateModalResult(result);
+    setUpdateModalItemId(item.item_id);
+    setOpenUpdateModal(true);
   };
 
   // ===== Reload current ticket data after saving =====
@@ -293,7 +302,7 @@ export default function ResultsPage() {
     if (!currentTicket?.encounter_id) return;
 
     try {
-      const res = await gettRequestItemsByEncouter(currentTicket.encounter_id);
+      const res = await getRequestItemsByEncouter(currentTicket.encounter_id);
       const items = normalizeList<ServiceRequestItem>(res);
       setRequestItems(items ?? []);
 
@@ -511,7 +520,7 @@ export default function ResultsPage() {
                                         </SquareButton>
                                         <SquareButton
                                           className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
-                                          onClick={() => openCreateReport(it)}
+                                          onClick={() => openUpdateReport(it, result)}
                                           disabled={!technicianId}
                                           title="Sửa báo cáo"
                                         >
@@ -636,7 +645,7 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {/* Modal tạo/sửa báo cáo */}
+      {/* Modal tạo báo cáo mới */}
       <ResultReportModal
         open={openCreateModal}
         onClose={() => setOpenCreateModal(false)}
@@ -648,12 +657,25 @@ export default function ResultsPage() {
         }}
       />
 
-      {/* Modal xem báo cáo */}
+      {/* Modal xem báo cáo (read-only) */}
       <ShowResultReportModal
         open={openShowModal}
         onClose={() => setOpenShowModal(false)}
         result={showModalResult}
         serviceLabel={showModalServiceLabel}
+      />
+
+      {/* Modal sửa báo cáo */}
+      <UpdateResultReportModal
+        open={openUpdateModal}
+        onClose={() => setOpenUpdateModal(false)}
+        result={updateModalResult}
+        serviceLabel={updateModalServiceLabel}
+        itemId={updateModalItemId}
+        technicianId={technicianId ?? null}
+        onSaved={async (resultId) => {
+          await reloadCurrentTicketData();
+        }}
       />
     </div>
   );

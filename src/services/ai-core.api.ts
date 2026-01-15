@@ -130,6 +130,15 @@ export const postAiSaveAnnotation = async (payload: {
   return res.data;
 };
 
+export const patchUpdateAiSaveAnnotation = async (payload: {
+  image_id: string;
+  detections: any;
+  model_name?: string;
+}) => {
+  const res = await axiosInstance.patch("ai-core/annotations", payload);
+  return res.data;
+};
+
 export const postDownloadAnnotation = async (dto: any) => {
   try {
     const res = await axiosInstance.post(
