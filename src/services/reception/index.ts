@@ -3,7 +3,7 @@ import {
   QueueTicket,
   GetWaitingTicketsQuery,
   CreateTicketPayload,
-  UpdateTicketDto,
+  UpdateTicketPayload,
 } from "@/types";
 
 export const getAllTicketReception = async (
@@ -136,7 +136,7 @@ export const postCompleteTicket = async (id: string) => {
 //   }
 // };
 
-export const patchUpdateTicket = async (id: string, dto: UpdateTicketDto) => {
+export const patchUpdateTicket = async (id: string, dto: UpdateTicketPayload) => {
   try {
     const response = await axiosInstance.patch(
       `/reception/queue/tickets/${id}`,

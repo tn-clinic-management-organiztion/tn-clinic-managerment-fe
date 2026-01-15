@@ -5,7 +5,7 @@ import { X, Eye, CheckCircle2, Clock, FileText } from "lucide-react";
 import { cn, SquareButton } from "@/components/ui/square";
 import ShowResultReportModal from "./ShowResultReportModal.modal";
 
-import { gettRequestItemsByEncouter } from "@/services/services";
+import { getRequestItemsByEncouter } from "@/services/services";
 import { getFindResultByRequestItemId } from "@/services/results";
 import { getAllServices } from "@/services/services";
 import { ModalShell } from "@/components/modal/ModalShell";
@@ -106,7 +106,7 @@ export default function ResultsModal(props: Props) {
 
       try {
         // 1. Load request items
-        const res = await gettRequestItemsByEncouter(props.encounterId);
+        const res = await getRequestItemsByEncouter(props.encounterId);
         const queueTicketEncounter =
           await getQueueTicketConsultationByEncounterIdAndTicketType(
             props.encounterId

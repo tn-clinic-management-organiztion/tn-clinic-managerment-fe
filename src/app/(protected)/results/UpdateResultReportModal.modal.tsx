@@ -1,224 +1,270 @@
 import TextEditor from "@/components/editor/TextEditor";
 import { uploadResultImage } from "@/services/results_image.api";
 import {
+  patchUpdateAiSaveAnnotation,
   postAiDetectFromFile,
   postAiSaveAnnotation,
 } from "@/services/ai-core.api";
 import { Input, SquareButton } from "@/components/ui/square";
-import React, { useEffect, useState } from "react";
-import { postCreateServiceResult } from "@/services/results";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  deleteRemoveResultImage,
+  patchUpdateServiceResult,
+  postCreateServiceResult,
+  UpdateResultPayload,
+} from "@/services/results";
 import { cn } from "@/lib/utils";
 import { FileUp, X } from "lucide-react";
 import { AIModel } from "@/types/ai";
 import { SingleSelected } from "@/components/select/SingleSelected";
 import { BBoxPreview } from "@/components/bb-preview/BBoxPreview";
+import { ServiceResult } from "@/types";
+import { notifySuccess } from "@/components/toast";
 
+type ImgState = {
+  file?: File;
+  previewUrl: string;
+  aiLoading?: boolean;
+  detections?: any[];
+  model_name?: string;
+  isExisting: boolean;
+  image_id?: string;
+};
 
-// ---------- modal ----------
-export default function CreateResultReportModal(props: {
+export default function UpdateResultReportModal({
+  open,
+  onClose,
+  serviceLabel,
+  itemId,
+  result,
+  technicianId,
+  onSaved,
+}: {
   open: boolean;
   onClose: () => void;
-
   serviceLabel: string;
   itemId: string | null;
-
+  result: ServiceResult | null;
   technicianId: string | null;
-
-  // save callback
   onSaved: (resultId: string) => void;
 }) {
+  // --- States ---
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
   const [mainConclusion, setMainConclusion] = useState("");
-  const reportBodyRef = React.useRef<string>("");
-  useEffect(() => {
-    if (!props.open) return;
-    reportBodyRef.current = "<p>Mẫu báo cáo...</p>";
-  }, [props.open]);
   const [isAbnormal, setIsAbnormal] = useState(false);
-
-  // images state: preview + ai dets + uploaded info
-  type ImgState = {
-    file: File;
-    previewUrl: string;
-    aiLoading?: boolean;
-    detections?: any[];
-    model_name?: string;
-    uploaded?: {
-      image_id: string;
-      original_image_url: string;
-      public_id?: string;
-      file_name?: string;
-      file_size?: string;
-      mime_type?: string;
-    };
-  };
-
   const [images, setImages] = useState<ImgState[]>([]);
-  const [activeIdx, setActiveIdx] = useState<number>(-1); // ảnh đang xem bbox
-  const [zoomIdx, setZoomIdx] = useState<number | null>(null); // overlay phóng to
+  const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
+  const [activeIdx, setActiveIdx] = useState<number>(-1);
+  const [zoomIdx, setZoomIdx] = useState<number | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>(AIModel.YOLOV12M);
 
+  const reportBodyRef = useRef<string>("");
+  const previewUrlsToCleanup = useRef<string[]>([]);
+
+  // --- 1. Load dữ liệu khi mở modal ---
   useEffect(() => {
-    if (!props.open) return;
+    if (!open || !result) return;
+
     setErr(null);
     setSaving(false);
-    setMainConclusion("");
-    setIsAbnormal(false);
-    setImages([]);
-    setActiveIdx(-1);
-    setZoomIdx(null);
-  }, [props.open]);
+    setDeletedImageIds([]); 
+    setMainConclusion(result.main_conclusion ?? "");
+    setIsAbnormal(result.is_abnormal ?? false);
+    reportBodyRef.current = result.report_body_html ?? "";
 
-  // 1. Thêm useRef để lưu trữ danh sách URL cần cleanup
-  const previewUrlsRef = React.useRef<string[]>([]);
+    const existingImgs: ImgState[] = (result.images ?? []).map((img) => ({
+      image_id: img.image_id,
+      previewUrl: img.original_image_url,
+      isExisting: true,
+      detections: img.annotations?.[0]?.annotation_data ?? [],
+      model_name: img.annotations?.[0]?.ai_model_name ?? "yolov12n",
+    }));
 
-  // 2. Mỗi khi images thay đổi, cập nhật ref (để dành cho lúc unmount thì xóa)
-  useEffect(() => {
-    previewUrlsRef.current = images.map((img) => img.previewUrl);
-  }, [images]);
+    setImages(existingImgs);
+    setActiveIdx(existingImgs.length > 0 ? 0 : -1);
+  }, [open, result]);
 
-  // 3. Cleanup CHỈ KHI component unmount (tắt hẳn Modal)
+  // --- 2. Cleanup Blob URLs khi unmount hoặc đóng modal ---
   useEffect(() => {
     return () => {
-      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      previewUrlsToCleanup.current.forEach((url) => URL.revokeObjectURL(url));
+      previewUrlsToCleanup.current = [];
     };
   }, []);
+
+  // --- 3. Handler: Chọn file mới ---
   const pickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     if (!picked.length) return;
 
-    setImages((prev) => [
-      ...prev,
-      ...picked.map((f) => ({
+    const newImgs: ImgState[] = picked.map((f) => {
+      const url = URL.createObjectURL(f);
+      previewUrlsToCleanup.current.push(url);
+      return {
         file: f,
-        previewUrl: URL.createObjectURL(f),
+        previewUrl: url,
+        isExisting: false,
         detections: undefined,
-      })),
-    ]);
+      };
+    });
 
-    if (activeIdx === -1) setActiveIdx(0);
+    setImages((prev) => [...prev, ...newImgs]);
+
+    // Nếu chưa có ảnh nào được chọn, set activeIdx = ảnh đầu tiên trong danh sách mới
+    if (activeIdx === -1 && images.length === 0) {
+      setActiveIdx(0);
+    }
+
     e.target.value = "";
   };
 
+  // --- 4. Handler: Xóa ảnh ---
   const removeImage = (idx: number) => {
-    // 1. Lấy ảnh cần xóa và revoke URL ngay lập tức
-    const imgToRemove = images[idx];
-    if (imgToRemove) {
-      URL.revokeObjectURL(imgToRemove.previewUrl);
+    const target = images[idx];
+
+    if (target.isExisting && target.image_id) {
+      // Ảnh cũ: Thêm vào danh sách chờ xóa
+      setDeletedImageIds((prev) => [...prev, target.image_id!]);
+    } else if (target.previewUrl.startsWith("blob:")) {
+      // Ảnh mới: Revoke blob URL ngay
+      URL.revokeObjectURL(target.previewUrl);
+      previewUrlsToCleanup.current = previewUrlsToCleanup.current.filter(
+        (url) => url !== target.previewUrl
+      );
     }
 
-    // 2. Cập nhật state sau khi đã revoke
+    // Cập nhật danh sách ảnh
     setImages((prev) => prev.filter((_, i) => i !== idx));
 
-    // 3. Xử lý index active
-    setActiveIdx((p) => {
-      if (p === idx) return -1;
-      if (p > idx) return p - 1;
-      return p;
+    // Điều chỉnh activeIdx
+    setActiveIdx((prevIdx) => {
+      const newLength = images.length - 1;
+      if (newLength === 0) return -1; // Không còn ảnh nào
+      if (prevIdx === idx) {
+        // Nếu đang xem ảnh bị xóa, chuyển sang ảnh trước đó hoặc ảnh đầu tiên
+        return idx > 0 ? idx - 1 : 0;
+      }
+      if (prevIdx > idx) return prevIdx - 1; // Điều chỉnh index
+      return prevIdx;
     });
   };
 
-  // State models
-  const [selectedModel, setSelectedModel] = useState<string>(AIModel.YOLOV12M);
-
+  // --- 5. Handler: Chạy AI ---
   const runAI = async (idx: number) => {
     const img = images[idx];
-    if (!img) return;
+
+    // Kiểm tra xem có thể fetch được ảnh không
+    if (!img.file && !img.previewUrl) {
+      setErr("Không thể chạy AI: Thiếu file hoặc URL ảnh");
+      return;
+    }
 
     setImages((prev) =>
       prev.map((x, i) => (i === idx ? { ...x, aiLoading: true } : x))
     );
-    try {
-      const res = await postAiDetectFromFile(img.file, selectedModel, 0.25);
 
-      const dets = res?.detections ?? res?.data?.detections ?? [];
+    try {
+      let detections;
+
+      if (img.file) {
+        // Ảnh mới: Dùng file trực tiếp
+        const res = await postAiDetectFromFile(img.file, selectedModel, 0.25);
+        detections = res?.detections ?? res?.data?.detections ?? [];
+      } else {
+        // Ảnh cũ: Fetch từ URL rồi chuyển thành File
+        const response = await fetch(img.previewUrl);
+        const blob = await response.blob();
+        const file = new File([blob], "temp-image.jpg", { type: blob.type });
+
+        const res = await postAiDetectFromFile(file, selectedModel, 0.25);
+        detections = res?.detections ?? res?.data?.detections ?? [];
+      }
+
       setImages((prev) =>
         prev.map((x, i) =>
           i === idx
-            ? {
-                ...x,
-                detections: dets,
-                aiLoading: false,
-                model_name: selectedModel,
-              }
+            ? { ...x, detections, aiLoading: false, model_name: selectedModel }
             : x
         )
       );
-      setActiveIdx(idx); // mở panel bbox
+
+      setActiveIdx(idx);
     } catch (e: any) {
-      console.error(e);
+      setErr("AI Detect lỗi: " + (e.message || "Unknown error"));
       setImages((prev) =>
         prev.map((x, i) => (i === idx ? { ...x, aiLoading: false } : x))
       );
-      setErr(e?.message ?? "AI detect thất bại.");
     }
   };
 
+  // --- 6. Handler: Lưu ---
   const save = async () => {
-    if (!props.itemId) return setErr("Thiếu request_item_id.");
-    if (!props.technicianId)
-      return setErr("Thiếu technician_id trong session.");
-
+    if (!result?.result_id) return;
     setSaving(true);
     setErr(null);
 
     try {
-      // 1) create service_results
-      const dto = {
-        request_item_id: props.itemId,
-        technician_id: props.technicianId,
-        main_conclusion: mainConclusion.trim() || undefined,
-        report_body_html: reportBodyRef.current || undefined,
+      const resId = result.result_id;
+
+      // Bước A: Cập nhật thông tin cơ bản
+      const updatePayload: UpdateResultPayload = {
+        technician_id: technicianId!,
+        main_conclusion: mainConclusion.trim(),
+        report_body_html: reportBodyRef.current,
         is_abnormal: isAbnormal,
       };
+      await patchUpdateServiceResult(resId, updatePayload);
 
-      const created = await postCreateServiceResult(dto as any);
-      const resultId = created?.result_id ?? created?.id ?? String(created);
+      // Bước B: Xóa ảnh đã đánh dấu
+      if (deletedImageIds.length > 0) {
+        await Promise.all(
+          deletedImageIds.map((id) => deleteRemoveResultImage(id))
+        );
+      }
 
-      // 2) upload images -> có image_id + original_image_url
-      const uploaded = await Promise.all(
-        images.map(async (img) => {
-          const up = await uploadResultImage(
-            img.file,
-            props.technicianId!,
-            resultId
-          );
-          const payload = up?.data ?? up;
-          return { img, payload };
-        })
-      );
-
-      // 3) save annotation to DB (không rerun AI)
-      // nếu ảnh chưa run AI thì detections = []
+      // Bước C: Xử lý ảnh (upload mới + update annotation cũ)
       await Promise.all(
-        uploaded.map(async ({ img, payload }) => {
-          const imageId = payload?.image_id ?? payload?.data?.image_id;
-          if (!imageId) return;
+        images.map(async (img) => {
+          if (!img.isExisting && img.file) {
+            const upRes = await uploadResultImage(
+              img.file,
+              technicianId!,
+              resId
+            );
+            const newImgId = upRes?.data?.image_id ?? upRes?.image_id;
 
-          const dets = img.detections ?? [];
-
-          await postAiSaveAnnotation({
-            image_id: imageId,
-            detections: dets,
-            model_name: img.model_name,
-          });
+            if (newImgId && img.detections) {
+              await postAiSaveAnnotation({
+                image_id: newImgId,
+                detections: img.detections,
+                model_name: img.model_name || selectedModel,
+              });
+            }
+          } else if (img.isExisting && img.image_id && img.detections) {
+            // Cập nhật annotation cho ảnh cũ
+            await patchUpdateAiSaveAnnotation({
+              image_id: img.image_id,
+              detections: img.detections,
+              model_name: img.model_name,
+            });
+          }
         })
       );
-
-      props.onSaved(resultId);
-      props.onClose();
+      notifySuccess("Cập nhật báo cáo thành công!");
+      onSaved(resId);
+      onClose();
     } catch (e: any) {
       console.error(e);
       setErr(
-        e?.response?.data?.message ?? e?.message ?? "Lưu báo cáo thất bại."
+        e.response?.data?.message || e.message || "Lỗi khi cập nhật báo cáo."
       );
     } finally {
       setSaving(false);
     }
   };
 
-  if (!props.open) return null;
+  if (!open) return null;
 
   const showAiPanel = activeIdx >= 0 && !!images[activeIdx]?.detections?.length;
 
@@ -234,11 +280,11 @@ export default function CreateResultReportModal(props: {
         {/* Header */}
         <div className="h-12 bg-primary-800 text-white px-3 flex items-center justify-between">
           <div className="text-xs font-bold uppercase tracking-wide">
-            Báo cáo kết quả • {props.serviceLabel}
+            Báo cáo kết quả • {serviceLabel}
           </div>
           <button
             className="p-2 hover:bg-white/10 rounded-[2px]"
-            onClick={props.onClose}
+            onClick={onClose}
           >
             <X size={16} />
           </button>
@@ -314,7 +360,7 @@ export default function CreateResultReportModal(props: {
                     <div className="w-full mt-3 grid grid-cols-3 gap-2">
                       {images.map((img, idx) => (
                         <div
-                          key={`${img.file.name}-${idx}`}
+                          key={`${img.previewUrl}-${idx}`}
                           className={cn(
                             "border border-secondary-200 bg-white rounded-[2px] overflow-hidden",
                             idx === activeIdx && "ring-2 ring-primary-200"
@@ -418,7 +464,7 @@ export default function CreateResultReportModal(props: {
               <div className="mt-4 flex justify-end gap-2">
                 <SquareButton
                   className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
-                  onClick={props.onClose}
+                  onClick={onClose}
                   disabled={saving}
                 >
                   Hủy

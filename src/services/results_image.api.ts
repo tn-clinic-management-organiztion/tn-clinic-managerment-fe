@@ -26,7 +26,6 @@ export const getImageSize = (
   file: File
 ): Promise<{ width: number; height: number }> => {
   return new Promise((resolve, reject) => {
-    // Chỉ nên dùng cho ảnh
     if (!file.type.startsWith("image/")) {
       reject(new Error("File không phải ảnh"));
       return;
@@ -37,7 +36,7 @@ export const getImageSize = (
 
     img.onload = () => {
       const size = { width: img.naturalWidth, height: img.naturalHeight };
-      URL.revokeObjectURL(url); // tránh leak bộ nhớ
+      URL.revokeObjectURL(url);
       resolve(size);
     };
 
