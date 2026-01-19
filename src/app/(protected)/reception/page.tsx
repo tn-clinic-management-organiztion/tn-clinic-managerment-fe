@@ -25,8 +25,7 @@ import {
   UpdateTicketPayload,
 } from "@/types";
 import { RoomType } from "@/types/rooms";
-
-import { getAllRooms } from "@/services/rooms";
+import { getRoomsForService } from "@/services/services";
 import {
   getSearchPatient,
   postCreatePatient,
@@ -35,7 +34,7 @@ import {
 import { postCreateEncounter } from "@/services/encounters";
 import { getAllServices } from "@/services/services";
 import {
-  getAllTicketReception,
+  getTicketsByStatusReception,
   patchUpdateTicket,
   postCallSpecific,
   postQueueTicketConsultation,
@@ -43,14 +42,12 @@ import {
   postSkipTicket,
   postStartTicket,
 } from "@/services/reception";
-
-import { toast } from "react-toastify";
+import { notifyError, notifySuccess } from "@/components/toast";
+import ServiceSelectModal from "@/app/(protected)/reception/ServiceSelectModal";
+import { isValidVNCCCD, isValidVNPhone } from "@/helpers";
+import PatientSearchResultModal from "@/app/(protected)/reception/PatientSearchResultModal";
 
 export default function ReceptionPage() {
-  // Toastify
-  const notifySuccess = (content: string) => toast.success(content);
-  const notifyError = (content: string) => toast.error(content);
-
   // =========================
   // 1) SESSION
   // =========================
@@ -62,20 +59,20 @@ export default function ReceptionPage() {
   const [tickets, setTickets] = useState<QueueTicket[]>([]);
   const [activeTicket, setActiveTicket] = useState<QueueTicket | null>(null);
   const [activeTab, setActiveTab] = useState<"RECEPTION" | "KIOSK_DEMO">(
-    "RECEPTION"
+    "RECEPTION",
   );
 
   // =========================
-  // 3) STATE - ROOMS (PHÂN LUỒNG)
+  // 3) STATE - ROOMS
   // =========================
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [isLoadingRooms, setIsLoadingRooms] = useState(false);
+  const [serviceRooms, setServiceRooms] = useState<Room[]>([]);
   const [selectedTargetRoom, setSelectedTargetRoom] = useState<number | null>(
-    null
+    null,
   );
+  const [isLoadingServiceRooms, setIsLoadingServiceRooms] = useState(false);
 
   // =========================
-  // 4) STATE - SERVICES (CHỌN DỊCH VỤ)
+  // 4) STATE - SERVICES
   // =========================
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [services, setServices] = useState<any[]>([]);
@@ -84,7 +81,7 @@ export default function ReceptionPage() {
   const [isLoadingServices, setIsLoadingServices] = useState(false);
   const [serviceSearch, setServiceSearch] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<number | null>(
-    null
+    null,
   );
   // Lưu object để hiển thị tên/giá sau khi chọn
   const [selectedService, setSelectedService] = useState<any | null>(null);
@@ -96,6 +93,11 @@ export default function ReceptionPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Patient[]>([]);
   const [showSearchModal, setShowSearchModal] = useState(false);
+
+  const closeSearchModal = () => {
+    setShowSearchModal(false);
+    setSearchResults([]);
+  };
 
   // =========================
   // 6) STATE - PATIENT FORM
@@ -157,35 +159,18 @@ export default function ReceptionPage() {
   };
 
   // =========================
-  // 8) EFFECTS - FETCH ROOMS
-  // =========================
-  useEffect(() => {
-    const fetchClinicRooms = async () => {
-      setIsLoadingRooms(true);
-      try {
-        const data = await getAllRooms({
-          room_type: RoomType.CLINIC,
-          is_active: true,
-          page: 1,
-          limit: 100,
-        });
-        setRooms(Array.isArray(data) ? data : []);
-      } catch (error) {
-        notifyError("Không tải được danh sách phòng khám (CLINIC)");
-        setRooms([]);
-      } finally {
-        setIsLoadingRooms(false);
-      }
-    };
-
-    fetchClinicRooms();
-  }, []);
-
-  // =========================
   // 9) EFFECTS - FETCH SERVICES
   // =========================
   useEffect(() => {
     if (!showServiceModal) return;
+
+    if (
+      services.length > 0 &&
+      servicePage === 1 &&
+      serviceSearch.trim() === ""
+    ) {
+      return;
+    }
 
     const fetchServices = async () => {
       setIsLoadingServices(true);
@@ -196,14 +181,11 @@ export default function ReceptionPage() {
           search: serviceSearch || undefined,
         });
 
-        // Hỗ trợ cả 2 kiểu:
-        // - API trả thẳng array
-        // - API trả { data: [], meta: {...} }
         const list = Array.isArray(res)
           ? res
           : Array.isArray(res?.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
         setServices(list);
 
         const total = res?.meta?.total_pages || res?.meta?.last_page || 1;
@@ -221,6 +203,31 @@ export default function ReceptionPage() {
     return () => clearTimeout(timer);
   }, [showServiceModal, serviceSearch, servicePage]);
 
+  // Fetch rooms for service
+  useEffect(() => {
+    if (!selectedServiceId) {
+      setServiceRooms([]);
+      setSelectedTargetRoom(null);
+      return;
+    }
+
+    const fetchRoomsByService = async () => {
+      setIsLoadingServiceRooms(true);
+      try {
+        const data = await getRoomsForService(String(selectedServiceId));
+        setServiceRooms(Array.isArray(data) ? data : []);
+        setSelectedTargetRoom(null); // reset khi đổi service
+      } catch (e) {
+        notifyError("Không tải được phòng cho dịch vụ đã chọn");
+        setServiceRooms([]);
+      } finally {
+        setIsLoadingServiceRooms(false);
+      }
+    };
+
+    fetchRoomsByService();
+  }, [selectedServiceId]);
+
   const handleServiceSearchChange = (val: string) => {
     setServiceSearch(val);
     setServicePage(1);
@@ -233,27 +240,22 @@ export default function ReceptionPage() {
     const roomId = session?.user?.assigned_room_id;
     if (!roomId) return;
 
-    const data = await getAllTicketReception(roomId, {
-      ticket_type: "REGISTRATION",
-      source: "WALKIN",
-    });
-
-    const fetchedWaiting = Array.isArray(data) ? data : [];
-
-    setTickets((prev) => {
-      const keep = prev.filter(
-        (t) =>
-          t.status !== "WAITING" &&
-          t.status !== "COMPLETED" &&
-          t.status !== "SKIPPED"
+    try {
+      const data = await getTicketsByStatusReception(
+        roomId,
+        "WAITING,CALLED,IN_PROGRESS",
+        {
+          ticket_type: "REGISTRATION",
+          source: "WALKIN",
+        },
       );
 
-      const map = new Map<string, QueueTicket>();
-      keep.forEach((t) => t.ticket_id && map.set(t.ticket_id, t));
-      fetchedWaiting.forEach((t) => t.ticket_id && map.set(t.ticket_id, t));
-
-      return Array.from(map.values());
-    });
+      const list = Array.isArray(data) ? data : [];
+      setTickets(list);
+    } catch (error) {
+      console.error(error);
+      notifyError("Không tải được danh sách vé tiếp đón");
+    }
   };
 
   useEffect(() => {
@@ -293,7 +295,7 @@ export default function ReceptionPage() {
   // =========================
   const handleTicketAction = async (
     ticketId: string | undefined,
-    action: "CALL" | "START" | "SKIP"
+    action: "CALL" | "START" | "SKIP",
   ) => {
     if (!ticketId) return;
 
@@ -305,7 +307,7 @@ export default function ReceptionPage() {
       else updated = await postSkipTicket(ticketId);
 
       setTickets((prev) =>
-        prev.map((t) => (t.ticket_id === ticketId ? updated : t))
+        prev.map((t) => (t.ticket_id === ticketId ? updated : t)),
       );
 
       // START => mở form tiếp đón (activeTicket) và reset dữ liệu nhập
@@ -335,8 +337,8 @@ export default function ReceptionPage() {
         prev.map((t) =>
           t.ticket_id === activeTicket.ticket_id
             ? { ...t, status: "SKIPPED" }
-            : t
-        )
+            : t,
+        ),
       );
       setActiveTicket(null);
       notifySuccess("Đã bỏ qua vé");
@@ -390,9 +392,18 @@ export default function ReceptionPage() {
   };
 
   const handleSelectFromModal = (patient: Patient) => {
-    setPatientForm((prev) => ({ ...prev, ...patient }));
-    setShowSearchModal(false);
-    setSearchResults([]);
+    setPatientForm({
+      patient_id: patient.patient_id || "",
+      full_name: patient.full_name || "",
+      dob: patient.dob || "",
+      gender: patient.gender || Gender.NAM,
+      phone: patient.phone || "",
+      cccd: patient.cccd || "",
+      address: patient.address || "",
+      medical_history: patient.medical_history || "",
+      allergy_history: patient.allergy_history || "",
+    });
+    closeSearchModal();
   };
 
   // =========================
@@ -413,6 +424,26 @@ export default function ReceptionPage() {
     }
     if (!selectedServiceId) {
       notifyError("Vui lòng chọn dịch vụ khám");
+      return;
+    }
+
+    const phone = (patientForm.phone || "").trim();
+
+    if (!isValidVNPhone(phone)) {
+      notifyError(
+        "Số điện thoại không hợp lệ (phải đủ 10 số và bắt đầu bằng 0).",
+      );
+      return;
+    }
+
+    const cccd = (patientForm.cccd || "").trim();
+    if (cccd && !isValidVNCCCD(cccd)) {
+      notifyError("CCCD phải gồm 12 số.");
+      return;
+    }
+
+    if (patientForm.dob && new Date(patientForm.dob) > new Date()) {
+      notifyError("Ngày sinh không hợp lệ.");
       return;
     }
 
@@ -469,7 +500,7 @@ export default function ReceptionPage() {
             serviceId: selectedServiceId,
             requestedBy: session?.user?.id,
           }),
-        }
+        },
       );
 
       // B4) CONSULTATION TICKET: tạo vé cho bác sĩ
@@ -489,14 +520,14 @@ export default function ReceptionPage() {
         prev.map((t) =>
           t.ticket_id === activeTicket.ticket_id
             ? { ...t, status: "COMPLETED" }
-            : t
-        )
+            : t,
+        ),
       );
 
       setActiveTicket(null);
       resetReceptionForm();
       notifySuccess(
-        `Đã tạo phiếu khám thành công!\n📋 Mã phiếu khám: ${encounterId}\n\n`
+        `Đã tạo phiếu khám thành công!\n📋 Mã phiếu khám: ${encounterId}\n\n`,
       );
     } catch (error: any) {
       console.error("Lỗi quy trình tiếp đón:", error);
@@ -535,177 +566,57 @@ export default function ReceptionPage() {
       </div>
     );
   }
+  const resetPatientForm = () => {
+    setPatientForm({
+      patient_id: "",
+      full_name: "",
+      dob: "",
+      gender: Gender.NAM,
+      phone: "",
+      cccd: "",
+      address: "",
+      medical_history: "",
+      allergy_history: "",
+    });
+    setSearchQuery("");
+  };
 
-  // =========================
-  // 16) UI - MAIN RECEPTION
-  // =========================
   return (
     <div className="flex flex-col h-screen bg-bg-white font-montserrat text-sm text-secondary-800 relative">
       {/* =========================
-          MODAL: CHỌN BỆNH NHÂN (khi trùng tên)
+          MODAL: CHỌN BỆNH NHÂN
          ========================= */}
-      {showSearchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-secondary-900/50 backdrop-blur-sm p-4 rounded-2xl">
-          <div className="bg-white shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[80vh] animate-[fadeIn_0.4s_ease-out] rounded-2xl">
-            <div className="bg-primary-900 text-white p-4 flex justify-between items-center shrink-0">
-              <span className="text-lg font-bold">
-                Kết quả tìm kiếm ({searchResults.length})
-              </span>
-              <button
-                onClick={() => setShowSearchModal(false)}
-                className="p-1 hover:bg-primary-800 rounded-full transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto p-4 bg-bg-content flex-1">
-              <div className="space-y-3">
-                {searchResults.map((p, index) => (
-                  <div
-                    key={p.patient_id || index}
-                    onClick={() => handleSelectFromModal(p)}
-                    className="bg-white p-4 rounded-md border border-secondary-200 shadow-sm hover:border-primary-500 hover:shadow-md cursor-pointer group transition-all"
-                  >
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <h3 className="font-bold text-lg text-primary-900 group-hover:text-primary-600">
-                          {p.full_name}
-                        </h3>
-
-                        <div className="flex gap-4 text-xs text-secondary-500 mt-1">
-                          <span>
-                            <span className="font-semibold">Năm sinh:</span>{" "}
-                            {p.dob ? new Date(p.dob).getFullYear() : "--"}
-                          </span>
-                          <span>
-                            <span className="font-semibold">Giới tính:</span>{" "}
-                            {p.gender}
-                          </span>
-                        </div>
-
-                        <div className="mt-2 text-xs text-secondary-600 flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <Phone size={12} /> {p.phone}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <MapPin size={12} />{" "}
-                            {p.address || "Chưa cập nhật địa chỉ"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button className="bg-white border border-primary-600 text-primary-600 px-4 py-2 rounded-md font-bold text-xs group-hover:bg-primary-600 group-hover:text-white transition-colors">
-                        CHỌN
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PatientSearchResultModal
+        open={showSearchModal}
+        onClose={closeSearchModal}
+        results={searchResults}
+        onSelect={(patient) => {
+          handleSelectFromModal(patient);
+        }}
+      />
 
       {/* =========================
           MODAL: CHỌN DỊCH VỤ
          ========================= */}
-      {showServiceModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-secondary-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] rounded-2xl animate-[fadeIn_0.3s_ease-out]">
-            <div className="bg-primary-800 text-white p-4 flex justify-between items-center rounded-t-2xl shrink-0">
-              <span className="text-lg font-bold">CHỌN DỊCH VỤ KHÁM</span>
-              <button
-                onClick={() => setShowServiceModal(false)}
-                className="p-1 hover:bg-primary-700 rounded-full transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="p-4 border-b border-secondary-100 bg-bg-content">
-              <div className="relative">
-                <input
-                  type="text"
-                  className="w-full border border-secondary-300 rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-                  placeholder="Nhập tên dịch vụ để tìm kiếm..."
-                  value={serviceSearch}
-                  onChange={(e) => handleServiceSearchChange(e.target.value)}
-                  autoFocus
-                />
-                <Search
-                  className="absolute left-3 top-3 text-secondary-400"
-                  size={18}
-                />
-              </div>
-            </div>
-
-            <div className="overflow-y-auto p-2 flex-1 bg-secondary-50">
-              {isLoadingServices ? (
-                <div className="flex flex-col items-center justify-center h-32 text-secondary-500 gap-2">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600" />
-                  <span>Đang tải dữ liệu...</span>
-                </div>
-              ) : services.length === 0 ? (
-                <div className="text-center p-8 text-secondary-500">
-                  Không tìm thấy dịch vụ nào.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {services.map((s) => (
-                    <div
-                      key={s.service_id}
-                      onClick={() => {
-                        setSelectedServiceId(s.service_id);
-                        setSelectedService(s);
-                        setShowServiceModal(false);
-                        setServiceSearch("");
-                      }}
-                      className="bg-white p-3 rounded-lg border border-secondary-200 hover:border-primary-500 hover:shadow-md cursor-pointer transition-all flex justify-between items-center group"
-                    >
-                      <div>
-                        <div className="font-bold text-secondary-900 group-hover:text-primary-700">
-                          {s.service_name}
-                        </div>
-                        <div className="text-xs text-secondary-500 mt-1">
-                          <span className="bg-secondary-100 px-2 py-0.5 rounded">
-                            {s.category?.category_name || "Dịch vụ"}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-right font-bold text-primary-600">
-                        {formatVND(s.unit_price)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="p-3 border-t border-secondary-200 bg-white rounded-b-2xl flex justify-between items-center">
-              <span className="text-xs text-secondary-500 font-semibold">
-                Trang {servicePage} / {totalServicePages}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  disabled={servicePage <= 1}
-                  onClick={() => setServicePage((prev) => prev - 1)}
-                  className="px-3 py-1.5 rounded border border-secondary-300 text-xs font-bold hover:bg-secondary-100 disabled:opacity-50"
-                >
-                  Trước
-                </button>
-                <button
-                  disabled={servicePage >= totalServicePages}
-                  onClick={() => setServicePage((prev) => prev + 1)}
-                  className="px-3 py-1.5 rounded bg-primary-600 text-white text-xs font-bold hover:bg-primary-700 disabled:opacity-50"
-                >
-                  Sau
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ServiceSelectModal
+        open={showServiceModal}
+        onClose={() => setShowServiceModal(false)}
+        services={services}
+        isLoading={isLoadingServices}
+        search={serviceSearch}
+        onChangeSearch={(val) => handleServiceSearchChange(val)}
+        page={servicePage}
+        totalPages={totalServicePages}
+        onPrevPage={() => setServicePage((prev) => prev - 1)}
+        onNextPage={() => setServicePage((prev) => prev + 1)}
+        onSelect={(s) => {
+          setSelectedServiceId(s.service_id);
+          setSelectedService(s);
+          setShowServiceModal(false);
+          setServiceSearch("");
+        }}
+        formatVND={formatVND}
+      />
 
       {/* =========================
           HEADER
@@ -744,17 +655,19 @@ export default function ReceptionPage() {
             </span>
 
             {activeTicket && (
-              <span
-                className={`px-3 py-1 rounded-full border text-xs font-semibold ${
-                  patientForm.patient_id
-                    ? "bg-primary-100 text-primary-700 border-primary-200"
-                    : "bg-success-100 text-success-700 border-success-200"
-                }`}
-              >
-                {patientForm.patient_id
-                  ? "CẬP NHẬT BỆNH NHÂN CŨ"
-                  : "TẠO BỆNH NHÂN MỚI"}
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-3 py-1 rounded-full border text-xs font-semibold ${
+                    patientForm.patient_id
+                      ? "bg-primary-100 text-primary-700 border-primary-200"
+                      : "bg-success-100 text-success-700 border-success-200"
+                  }`}
+                >
+                  {patientForm.patient_id
+                    ? "CẬP NHẬT BỆNH NHÂN CŨ"
+                    : "TẠO BỆNH NHÂN MỚI"}
+                </span>
+              </div>
             )}
           </div>
 
@@ -786,6 +699,16 @@ export default function ReceptionPage() {
               >
                 {isSearching ? "Đang tìm..." : "Tìm kiếm"}
               </button>
+              {patientForm.patient_id && (
+                <button
+                  type="button"
+                  onClick={resetPatientForm}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-secondary-200 hover:bg-secondary-300 text-secondary-700 rounded-md font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Xóa thông tin bệnh nhân đang chọn để tạo bệnh nhân mới"
+                >
+                  Tạo mới
+                </button>
+              )}
             </div>
 
             {/* Thông tin hành chính */}
@@ -852,11 +775,15 @@ export default function ReceptionPage() {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={10}
                     className="w-full border border-secondary-300 rounded-md px-3 py-2 focus:border-primary-500 font-medium"
                     value={patientForm.phone}
-                    onChange={(e) =>
-                      setPatientForm({ ...patientForm, phone: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const onlyDigits = e.target.value.replace(/\D/g, "");
+                      setPatientForm({ ...patientForm, phone: onlyDigits });
+                    }}
                   />
                 </div>
 
@@ -999,18 +926,31 @@ export default function ReceptionPage() {
                   </label>
 
                   <div className="space-y-2 max-h-44 overflow-y-auto">
-                    {isLoadingRooms && (
-                      <div className="text-xs text-secondary-500">
-                        Đang tải danh sách phòng...
-                      </div>
-                    )}
-                    {!isLoadingRooms && rooms.length === 0 && (
-                      <div className="text-xs text-error-600">
-                        Không có phòng khám
+                    {/* Chưa chọn service */}
+                    {!selectedServiceId && (
+                      <div className="text-xs text-secondary-400 italic">
+                        Vui lòng chọn dịch vụ trước để hiển thị phòng khám
                       </div>
                     )}
 
-                    {rooms.map((room) => (
+                    {/* Đang load */}
+                    {isLoadingServiceRooms && (
+                      <div className="text-xs text-secondary-500">
+                        Đang tải phòng phù hợp với dịch vụ...
+                      </div>
+                    )}
+
+                    {/* Không có phòng */}
+                    {selectedServiceId &&
+                      !isLoadingServiceRooms &&
+                      serviceRooms.length === 0 && (
+                        <div className="text-xs text-error-600">
+                          Dịch vụ này chưa được gán phòng
+                        </div>
+                      )}
+
+                    {/* Danh sách phòng hợp lệ */}
+                    {serviceRooms.map((room) => (
                       <label
                         key={room.room_id}
                         className={`flex items-center p-3 rounded-md border cursor-pointer transition-all ${
@@ -1023,7 +963,6 @@ export default function ReceptionPage() {
                           type="radio"
                           name="targetRoom"
                           className="hidden"
-                          value={room.room_id}
                           checked={selectedTargetRoom === room.room_id}
                           onChange={() => setSelectedTargetRoom(room.room_id)}
                         />
@@ -1073,7 +1012,7 @@ export default function ReceptionPage() {
               SL:{" "}
               {
                 tickets.filter(
-                  (t) => t.status === "WAITING" || t.status === "CALLED"
+                  (t) => t.status === "WAITING" || t.status === "CALLED",
                 ).length
               }
             </span>
@@ -1087,7 +1026,7 @@ export default function ReceptionPage() {
                 <div
                   key={ticket.ticket_id}
                   className={`p-4 rounded-large shadow-sm border-l-[6px] transition-all bg-bg-content ${getStatusColor(
-                    ticket.status ?? ""
+                    ticket.status ?? "",
                   )} border-l-current bg-opacity-10`}
                 >
                   <div className="flex justify-between items-start mb-3">
@@ -1101,8 +1040,8 @@ export default function ReceptionPage() {
                           ticket.status === "WAITING"
                             ? "bg-secondary-100 border-secondary-200 text-secondary-600"
                             : ticket.status === "CALLED"
-                            ? "bg-warning-100 border-warning-200 text-warning-800"
-                            : "bg-primary-100 border-primary-200 text-primary-800"
+                              ? "bg-warning-100 border-warning-200 text-warning-800"
+                              : "bg-primary-100 border-primary-200 text-primary-800"
                         }`}
                       >
                         {ticket.status}
@@ -1115,7 +1054,7 @@ export default function ReceptionPage() {
                               {
                                 hour: "2-digit",
                                 minute: "2-digit",
-                              }
+                              },
                             )
                           : "--:--"}
                       </div>
@@ -1157,10 +1096,12 @@ export default function ReceptionPage() {
                     )}
 
                     {ticket.status === "IN_PROGRESS" && (
-                      <div className="col-span-2 text-center text-xs text-primary-700 font-bold border border-primary-200 bg-primary-50 py-2 rounded-md flex items-center justify-center gap-2">
-                        <Activity size={14} className="animate-pulse" /> Đang xử
-                        lý...
-                      </div>
+                      <button
+                        onClick={() => setActiveTicket(ticket)}
+                        className="col-span-2 flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white text-xs py-2 rounded-md font-bold shadow-sm"
+                      >
+                        <Play size={14} /> TIẾP TỤC
+                      </button>
                     )}
                   </div>
                 </div>

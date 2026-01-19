@@ -1,5 +1,5 @@
 import axiosInstance from "@/lib/http/client";
-import { CreatePatientDto, UpdatePatientDto } from "@/types";
+import { CreatePatientPayload, UpdatePatientPayload } from "@/types";
 
 export class PatientSearchDto {
   phone?: string;
@@ -19,9 +19,9 @@ export const getSearchPatient = async (search: PatientSearchDto) => {
   }
 };
 
-export const postCreatePatient = async (createPatientDto: CreatePatientDto) => {
+export const postCreatePatient = async (createPatientPayload: CreatePatientPayload) => {
   try {
-    const response = await axiosInstance.post("/patients", createPatientDto);
+    const response = await axiosInstance.post("/patients", createPatientPayload);
     return response.data.data;
   } catch (error) {
     console.error("Create Patient error: ", error);
@@ -31,12 +31,12 @@ export const postCreatePatient = async (createPatientDto: CreatePatientDto) => {
 
 export const putUpdatePatient = async (
   patientId: string,
-  updatePatientDto: UpdatePatientDto
+  updatePatientPayload: UpdatePatientPayload
 ) => {
   try {
     const response = await axiosInstance.put(
       `/patients/${patientId}`,
-      updatePatientDto
+      updatePatientPayload
     );
     return response.data.data;
   } catch (error) {

@@ -71,7 +71,7 @@ export const postCreateServiceRequestsByDoctor = async (
   }
 };
 
-export const gettRequestItemsByEncouter = async (id: string) => {
+export const getRequestItemsByEncouter = async (id: string) => {
   try {
     const response = await axiosInstance.get(
       `service-orders/encounter/${id}/items`

@@ -28,6 +28,8 @@ import {
   MoreVertical,
   Clock,
   AlertCircle,
+  Plus,
+  Search,
 } from "lucide-react";
 import {
   TransformWrapper,
@@ -47,7 +49,7 @@ import { useSession } from "next-auth/react";
 import { notifyError, notifySuccess } from "@/components/toast";
 
 // --- CONFIG ---
-const AI_CLASSES = [
+const DEFAULT_CLASSES = [
   { id: 0, name: "nodule", color: "#ef4444" },
   { id: 1, name: "liver tumor", color: "#f97316" },
   { id: 2, name: "Brain tumor", color: "#eab308" },
@@ -59,9 +61,38 @@ const AI_CLASSES = [
   { id: 8, name: "Tuberculosis", color: "#ec4899" },
 ];
 
+// Hàm tạo màu ngẫu nhiên
+const generateRandomColor = () => {
+  const colors = [
+    "#ef4444",
+    "#f97316",
+    "#eab308",
+    "#84cc16",
+    "#22c55e",
+    "#06b6d4",
+    "#3b82f6",
+    "#8b5cf6",
+    "#a855f7",
+    "#ec4899",
+    "#f43f5e",
+    "#d946ef",
+    "#0ea5e9",
+    "#14b8a6",
+    "#10b981",
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 interface Props {
   imageId: string;
 }
+
+interface ClassItem {
+  id: number;
+  name: string;
+  color: string;
+}
+
 interface BoxUI {
   x: number;
   y: number;
@@ -94,10 +125,14 @@ interface ConfirmModalState {
 }
 
 const LabelingWorkspace = ({ imageId }: Props) => {
-  // Session
   const { data: session, status } = useSession();
-
   const router = useRouter();
+
+  // --- CLASSES STATE ---
+  const [availableClasses, setAvailableClasses] =
+    useState<ClassItem[]>(DEFAULT_CLASSES);
+  const [showAddClass, setShowAddClass] = useState(false);
+  const [newClassName, setNewClassName] = useState("");
 
   // --- STATE ---
   const [loading, setLoading] = useState(true);
@@ -108,12 +143,10 @@ const LabelingWorkspace = ({ imageId }: Props) => {
     date: "",
   });
   const [annotationSets, setAnnotationSets] = useState<AnnotationSet[]>([]);
-
   const [currentBoxes, setCurrentBoxes] = useState<BoxUI[]>([]);
   const [currentStatus, setCurrentStatus] = useState("UNLABELED");
   const [isEditing, setIsEditing] = useState(false);
 
-  // --- LOGIC DERIVED STATE ---
   const isReadOnly =
     (currentStatus === "APPROVED" || currentStatus === "SUBMITTED") &&
     !isEditing;
@@ -156,11 +189,43 @@ const LabelingWorkspace = ({ imageId }: Props) => {
   const closeConfirm = () =>
     setConfirmModal((prev) => ({ ...prev, isOpen: false }));
 
+  // --- CLASS MANAGEMENT ---
+  const handleAddNewClass = () => {
+    const trimmed = newClassName.trim();
+    if (!trimmed) {
+      toast.warning("Vui lòng nhập tên lớp");
+      return;
+    }
+
+    // Check duplicate
+    const exists = availableClasses.find(
+      (c) => c.name.toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (exists) {
+      toast.warning("Lớp này đã tồn tại");
+      return;
+    }
+
+    const newId = Math.max(...availableClasses.map((c) => c.id), -1) + 1;
+    const newClass: ClassItem = {
+      id: newId,
+      name: trimmed,
+      color: generateRandomColor(),
+    };
+
+    setAvailableClasses([...availableClasses, newClass]);
+    setSelectedClassId(newId);
+    setNewClassName("");
+    setShowAddClass(false);
+    toast.success(`Đã thêm lớp "${trimmed}"`);
+  };
+
   // --- CONVERT DATA ---
   const convertDataToUI = (data: any[]): BoxUI[] => {
     return (data || []).map((item: any) => {
       const clsId = item.class?.id ?? 0;
-      const cls = AI_CLASSES.find((c) => c.id === clsId) || AI_CLASSES[0];
+      const cls =
+        availableClasses.find((c) => c.id === clsId) || availableClasses[0];
       return {
         x: item.bbox?.x1 || item.x,
         y: item.bbox?.y1 || item.y,
@@ -172,7 +237,7 @@ const LabelingWorkspace = ({ imageId }: Props) => {
     });
   };
 
-  // --- 1. FETCH DATA - FIXED LOGIC ---
+  // --- FETCH DATA ---
   const fetchDetail = async () => {
     setLoading(true);
     try {
@@ -197,7 +262,7 @@ const LabelingWorkspace = ({ imageId }: Props) => {
           data: h.annotation_data,
           isVisible: false,
           source: "HUMAN",
-        })
+        }),
       );
 
       if (res.ai_reference) {
@@ -214,50 +279,69 @@ const LabelingWorkspace = ({ imageId }: Props) => {
       }
       setAnnotationSets(history);
 
-      // ✅ LOGIC MỚI: Ưu tiên load theo thứ tự workflow
-      // 1. Tìm IN_PROGRESS hoặc SUBMITTED (đang trong workflow)
+      const allClasses = new Map<number, ClassItem>();
+
+      // Thêm các class mặc định trước
+      DEFAULT_CLASSES.forEach((cls) => {
+        allClasses.set(cls.id, cls);
+      });
+
+      // Quét qua tất cả annotation history và thêm class mới
+      history.forEach((annotation) => {
+        (annotation.data || []).forEach((item: any) => {
+          const classId = item.class?.id;
+          const className = item.class?.name;
+
+          if (classId !== undefined && className && !allClasses.has(classId)) {
+            allClasses.set(classId, {
+              id: classId,
+              name: className,
+              color: generateRandomColor(),
+            });
+          }
+        });
+      });
+
+      // Cập nhật lại availableClasses với tất cả class đã phát hiện
+      setAvailableClasses(Array.from(allClasses.values()));
+
       const workflowAnnotation = history.find(
         (h) =>
           h.source === "HUMAN" &&
           !h.isDeprecated &&
-          (h.status === "IN_PROGRESS" || h.status === "SUBMITTED")
+          (h.status === "IN_PROGRESS" || h.status === "SUBMITTED"),
       );
 
       if (workflowAnnotation) {
-        // Có annotation đang làm dở hoặc đang chờ duyệt
         setCurrentStatus(workflowAnnotation.status);
         setCurrentBoxes(convertDataToUI(workflowAnnotation.data));
         setIsEditing(workflowAnnotation.status === "IN_PROGRESS");
         return;
       }
 
-      // 2. Không có workflow annotation -> Tìm APPROVED hoặc REJECTED
       const concludedAnnotation = history.find(
         (h) =>
           h.source === "HUMAN" &&
           !h.isDeprecated &&
-          (h.status === "APPROVED" || h.status === "REJECTED")
+          (h.status === "APPROVED" || h.status === "REJECTED"),
       );
 
       if (concludedAnnotation) {
         setCurrentStatus(concludedAnnotation.status);
 
-        // ✅ Nếu là REJECTED -> Load boxes rỗng để bác sĩ label lại
         if (concludedAnnotation.status === "REJECTED") {
-          setCurrentBoxes([]); // Bắt đầu từ đầu
-          setIsEditing(true); // Cho phép edit ngay
+          setCurrentBoxes([]);
+          setIsEditing(true);
           toast.info("Annotation bị từ chối. Hãy label lại từ đầu.", {
             autoClose: 5000,
           });
         } else {
-          // APPROVED -> Load data cũ, không cho edit
           setCurrentBoxes(convertDataToUI(concludedAnnotation.data));
           setIsEditing(false);
         }
         return;
       }
 
-      // 3. Không có gì cả -> UNLABELED
       setCurrentStatus("UNLABELED");
       setCurrentBoxes([]);
       setIsEditing(true);
@@ -271,13 +355,12 @@ const LabelingWorkspace = ({ imageId }: Props) => {
   const toggleSetVisibility = (id: string) => {
     setAnnotationSets((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, isVisible: !item.isVisible } : item
-      )
+        item.id === id ? { ...item, isVisible: !item.isVisible } : item,
+      ),
     );
   };
 
   // --- ACTIONS ---
-
   const handleManualDeprecate = (item: AnnotationSet) => {
     if (item.id === "AI_REF") return;
     setConfirmModal({
@@ -291,7 +374,7 @@ const LabelingWorkspace = ({ imageId }: Props) => {
         try {
           await setAnnotationDeprecated(
             item.id,
-            "Đánh dấu thủ công bởi bác sĩ"
+            "Đánh dấu thủ công bởi bác sĩ",
           );
           notifySuccess("Đã đánh dấu bản ghi là Lạc hậu");
           fetchDetail();
@@ -344,7 +427,9 @@ const LabelingWorkspace = ({ imageId }: Props) => {
   const handleSaveResult = async () => {
     try {
       const formatted = currentBoxes.map((b) => {
-        const cls = AI_CLASSES.find((c) => c.id === b.labelId) || AI_CLASSES[0];
+        const cls =
+          availableClasses.find((c) => c.id === b.labelId) ||
+          availableClasses[0];
         return {
           bbox: {
             x1: b.x,
@@ -379,9 +464,7 @@ const LabelingWorkspace = ({ imageId }: Props) => {
       return;
     }
     try {
-      if (!session?.user.id) {
-        return;
-      }
+      if (!session?.user.id) return;
       await rejectHumanAnnotation(imageId, {
         rejected_by: session?.user.id,
         reason: rejectReasonInput,
@@ -406,7 +489,8 @@ const LabelingWorkspace = ({ imageId }: Props) => {
       setStartPos({ x, y });
       setIsDrawing(true);
       const cls =
-        AI_CLASSES.find((c) => c.id === selectedClassId) || AI_CLASSES[0];
+        availableClasses.find((c) => c.id === selectedClassId) ||
+        availableClasses[0];
       setTempBox({ x, y, w: 0, h: 0, labelId: cls.id, color: cls.color });
     }
   };
@@ -515,8 +599,8 @@ const LabelingWorkspace = ({ imageId }: Props) => {
             1 + annotationSets.filter((s) => s.isVisible).length === 1
               ? "grid-cols-1"
               : 1 + annotationSets.filter((s) => s.isVisible).length === 2
-              ? "grid-cols-2"
-              : "grid-cols-2 md:grid-cols-3"
+                ? "grid-cols-2"
+                : "grid-cols-2 md:grid-cols-3"
           } gap-4 w-full h-full`}
         >
           {/* MAIN VIEW */}
@@ -565,7 +649,10 @@ const LabelingWorkspace = ({ imageId }: Props) => {
                           className="absolute -top-6 left-0 text-[10px] px-1.5 py-0.5 text-white font-bold rounded shadow"
                           style={{ backgroundColor: box.color }}
                         >
-                          {AI_CLASSES.find((c) => c.id === box.labelId)?.name}
+                          {
+                            availableClasses.find((c) => c.id === box.labelId)
+                              ?.name
+                          }
                         </span>
                         {activeTool === "SELECT" && canDraw && (
                           <button
@@ -631,7 +718,10 @@ const LabelingWorkspace = ({ imageId }: Props) => {
                           className="absolute -top-6 left-0 text-[10px] px-1.5 py-0.5 text-white font-bold rounded shadow"
                           style={{ backgroundColor: box.color }}
                         >
-                          {AI_CLASSES.find((c) => c.id === box.labelId)?.name}
+                          {
+                            availableClasses.find((c) => c.id === box.labelId)
+                              ?.name
+                          }
                         </span>
                       </div>
                     ))}
@@ -690,10 +780,10 @@ const LabelingWorkspace = ({ imageId }: Props) => {
                           currentStatus === "APPROVED"
                             ? "bg-green-100 text-green-700"
                             : currentStatus === "SUBMITTED"
-                            ? "bg-purple-100 text-purple-700"
-                            : currentStatus === "REJECTED"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-gray-200 text-gray-700"
+                              ? "bg-purple-100 text-purple-700"
+                              : currentStatus === "REJECTED"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-gray-200 text-gray-700"
                         }`}
                 >
                   {currentStatus}
@@ -847,23 +937,70 @@ const LabelingWorkspace = ({ imageId }: Props) => {
           </div>
         </div>
 
+        {/* CLASS SELECTOR & ACTIONS */}
         <div className="p-4 border-t bg-gray-50 space-y-3 shrink-0 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
           {canDraw && (
             <div>
-              <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">
-                Chọn loại bệnh
+              <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block flex items-center justify-between">
+                <span>Chọn loại bệnh</span>
+                <button
+                  onClick={() => {
+                    setShowAddClass(!showAddClass);
+                    if (!showAddClass) {
+                      // Khi mở form thêm mới, xóa input cũ
+                      setNewClassName("");
+                    }
+                  }}
+                  className={`p-1.5 rounded transition-colors ${
+                    showAddClass
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "bg-gray-100 text-indigo-600 hover:bg-gray-200"
+                  }`}
+                  title={showAddClass ? "Quay lại danh sách" : "Thêm lớp mới"}
+                >
+                  {showAddClass ? <ArrowLeft size={14} /> : <Plus size={14} />}
+                </button>
               </label>
-              <select
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(Number(e.target.value))}
-                className="w-full text-xs p-2 border rounded bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-              >
-                {AI_CLASSES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+
+              {/* Add New Class Form - Only show when toggled */}
+              {showAddClass ? (
+                <div className="space-y-2">
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      value={newClassName}
+                      onChange={(e) => setNewClassName(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleAddNewClass()
+                      }
+                      placeholder="Nhập tên bệnh mới..."
+                      className="flex-1 text-xs p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
+                      autoFocus
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddNewClass}
+                    className="w-full px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-xs font-medium"
+                  >
+                    Thêm vào danh sách
+                  </button>
+                </div>
+              ) : (
+                /* Class Dropdown - Only show when not in add mode */
+                <>
+                  <select
+                    value={selectedClassId}
+                    onChange={(e) => setSelectedClassId(Number(e.target.value))}
+                    className="w-full text-xs p-2 border rounded bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    {availableClasses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
           )}
 

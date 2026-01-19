@@ -26,3 +26,7 @@ export const getDefaultRoute = (role?: RoleCode) => {
   console.log("No match found, returning /login");
   return "/login";
 };
+
+export const isValidVNPhone = (phone: string) => /^0\d{9}$/.test(phone.trim());
+
+export const isValidVNCCCD = (cccd: string) => /^\d{12}$/.test(cccd.trim());

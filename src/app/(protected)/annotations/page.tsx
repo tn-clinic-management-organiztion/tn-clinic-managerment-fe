@@ -1,4 +1,3 @@
-import React from 'react';
 import ImageGallery from '@/components/labelling/ImageGallery';
 
 export default function LabellingPage() {

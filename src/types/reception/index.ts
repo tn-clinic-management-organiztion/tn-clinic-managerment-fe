@@ -39,6 +39,8 @@ export type GetWaitingTicketsQuery = {
   source?: TicketSource;
 };
 
+export type GetInProgressTicketQuery = Partial<GetWaitingTicketsQuery>
+
 export type CreateTicketPayload = {
   room_id: number;
   ticket_type: "REGISTRATION" | "CONSULTATION" | "SERVICE";
