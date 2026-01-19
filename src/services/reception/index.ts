@@ -5,24 +5,25 @@ import {
   CreateTicketPayload,
   UpdateTicketPayload,
 } from "@/types";
+import { GetInProgressTicketQuery } from "@/types/reception";
 
-export const getAllTicketReception = async (
+export const getTicketsByStatusReception = async (
   roomId: number,
-  query: GetWaitingTicketsQuery
+  status: string, // "WAITING" | "CALLED" | "IN_PROGRESS" | "WAITING,CALLED"
+  query?: { ticket_type?: string; source?: string }
 ) => {
   try {
     const response = await axiosInstance.get(
-      `/reception/queue/tickets/waiting/${roomId}`,
-      {
-        params: query,
-      }
+      `/reception/queue/tickets/status/${status}/room/${roomId}`,
+      { params: query }
     );
     return response.data.data;
   } catch (error) {
-    console.error("Get waiting tickets Reception error:", error);
+    console.error("Get tickets by status Reception error:", error);
     throw error;
   }
 };
+
 
 export const postQueueTicketWalkin = async (payload: CreateTicketPayload) => {
   try {

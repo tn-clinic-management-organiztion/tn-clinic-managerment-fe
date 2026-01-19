@@ -65,6 +65,48 @@ const inConsultationBucket = (s: EncounterStatus) =>
 const waitingBucket = (s: EncounterStatus) =>
   [EncounterStatus.REGISTERED, EncounterStatus.AWAITING_PAYMENT].includes(s);
 
+const toNumberOrNull = (v: string) => {
+  if (v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const toIntOrNull = (v: string) => {
+  const n = toNumberOrNull(v);
+  if (n === null) return null;
+  return Math.trunc(n);
+};
+
+const round = (n: number, digits: number) => {
+  const p = 10 ** digits;
+  return Math.round(n * p) / p;
+};
+
+const normalizeVitals = (e: MedicalEncounter): MedicalEncounter => {
+  const next = { ...e };
+
+  // numeric scale
+  if (next.weight != null) next.weight = round(next.weight, 2);
+  if (next.height != null) next.height = round(next.height, 2);
+  if (next.bmi != null) next.bmi = round(next.bmi, 2);
+  if (next.temperature != null) next.temperature = round(next.temperature, 1);
+  if (next.sp_o2 != null) next.sp_o2 = round(next.sp_o2, 2);
+
+  // int
+  if (next.pulse != null) next.pulse = Math.trunc(next.pulse);
+  if (next.respiratory_rate != null)
+    next.respiratory_rate = Math.trunc(next.respiratory_rate);
+  if (next.bp_systolic != null) next.bp_systolic = Math.trunc(next.bp_systolic);
+  if (next.bp_diastolic != null)
+    next.bp_diastolic = Math.trunc(next.bp_diastolic);
+
+  // auto BMI nếu thiếu
+  const autoBmi = calcBMI(next.weight, next.height);
+  if (next.bmi == null && autoBmi != null) next.bmi = autoBmi;
+
+  return next;
+};
+
 export default function DoctorPage() {
   const { data: session } = useSession();
   const { isConnected, tickets, lastEvent, joinRoom } = useQueueSocket({
@@ -135,7 +177,7 @@ export default function DoctorPage() {
       return;
     }
 
-    // rule: min 2 ký tự 
+    // rule: min 1 ký tự
     if (q.length < 1) {
       abortRef.current?.abort();
       setIcdList([]);
@@ -165,7 +207,7 @@ export default function DoctorPage() {
       try {
         const res = await getAllIcd10(
           { search: q, page: 1, limit: 20 },
-          ac.signal
+          ac.signal,
         );
         const list = (res?.data ?? []) as RefIcd10[];
 
@@ -197,7 +239,7 @@ export default function DoctorPage() {
             final_icd_code: x.icd_code,
             icd_ref: x,
           }
-        : p
+        : p,
     );
 
     suppressNextSearchRef.current = true;
@@ -216,11 +258,10 @@ export default function DoctorPage() {
     setLoading(true);
     try {
       if (roomIdFromSession) {
-        const data: any[] = await getQueueTicketsTodayByRoomId(
-          roomIdFromSession
-        );
+        const data: any[] =
+          await getQueueTicketsTodayByRoomId(roomIdFromSession);
         const dataEncounter = data.map(
-          (x) => x.encounter
+          (x) => x.encounter,
         ) as MedicalEncounter[];
         setQueue(dataEncounter ?? []);
       }
@@ -238,11 +279,11 @@ export default function DoctorPage() {
 
   const waitingList = useMemo(
     () => queue.filter((x) => waitingBucket(x.current_status)),
-    [queue]
+    [queue],
   );
   const inProgressList = useMemo(
     () => queue.filter((x) => inConsultationBucket(x.current_status)),
-    [queue]
+    [queue],
   );
 
   // ===== Open encounter detail =====
@@ -250,6 +291,7 @@ export default function DoctorPage() {
     setLoading(true);
     try {
       const detail = await getEncounterById(encounterId);
+      console.log("Detail: ", detail);
       setCurrent(detail);
       setTab("IN_PROGRESS");
     } catch (e) {
@@ -283,37 +325,135 @@ export default function DoctorPage() {
     }
   };
 
+const validateVitals = (e: MedicalEncounter) => {
+  const errs: string[] = [];
+
+  // not negative =====
+  const notNegative = (label: string, v: number | null | undefined) => {
+    if (v == null) return;
+    if (!Number.isFinite(v)) errs.push(`${label} không hợp lệ`);
+    else if (v < 0) errs.push(`${label} không được âm`);
+  };
+
+  notNegative("Cân nặng", e.weight);
+  notNegative("Chiều cao", e.height);
+  notNegative("BMI", e.bmi);
+  notNegative("Nhiệt độ", e.temperature);
+  notNegative("Mạch", e.pulse);
+  notNegative("Nhịp thở", e.respiratory_rate);
+  notNegative("HA tâm thu", e.bp_systolic);
+  notNegative("HA tâm trương", e.bp_diastolic);
+  notNegative("SpO2", e.sp_o2);
+
+  // ===== Numeric (precision/scale)  =====
+  const maxByNumeric = (precision: number, scale: number) => {
+    // max = 10^(p-s) - 10^(-s)
+    return Math.pow(10, precision - scale) - Math.pow(10, -scale);
+  };
+
+  const hasTooManyDecimals = (v: number, scale: number) => {
+    const p = Math.pow(10, scale);
+    return Math.round(v * p) !== v * p;
+  };
+
+  const checkNumeric = (
+    label: string,
+    v: number | null | undefined,
+    precision: number,
+    scale: number,
+  ) => {
+    if (v == null) return;
+    if (!Number.isFinite(v)) {
+      errs.push(`${label} không hợp lệ`);
+      return;
+    }
+
+    // check scale
+    if (hasTooManyDecimals(v, scale)) {
+      errs.push(`${label} chỉ được tối đa ${scale} chữ số thập phân`);
+    }
+
+    // check max theo precision
+    const max = maxByNumeric(precision, scale);
+    if (Math.abs(v) > max) {
+      errs.push(`${label} vượt quá giới hạn lưu (${max})`);
+    }
+  };
+
+  // entity numeric:
+  checkNumeric("Cân nặng", e.weight, 5, 2);
+  checkNumeric("Chiều cao", e.height, 5, 2);
+  checkNumeric("BMI", e.bmi, 4, 2);
+  checkNumeric("Nhiệt độ", e.temperature, 4, 1);
+  checkNumeric("SpO2", e.sp_o2, 5, 2);
+
+  const MAX_INT = 2147483647;
+
+  const checkInt = (label: string, v: number | null | undefined) => {
+    if (v == null) return;
+    if (!Number.isFinite(v)) {
+      errs.push(`${label} không hợp lệ`);
+      return;
+    }
+    if (!Number.isInteger(v)) errs.push(`${label} phải là số nguyên`);
+    if (v > MAX_INT) errs.push(`${label} vượt quá giới hạn lưu (${MAX_INT})`);
+  };
+
+  checkInt("Mạch", e.pulse);
+  checkInt("Nhịp thở", e.respiratory_rate);
+  checkInt("HA tâm thu", e.bp_systolic);
+  checkInt("HA tâm trương", e.bp_diastolic);
+
+  if (
+    e.bp_systolic != null &&
+    e.bp_diastolic != null &&
+    Number.isFinite(e.bp_systolic) &&
+    Number.isFinite(e.bp_diastolic) &&
+    e.bp_systolic <= e.bp_diastolic
+  ) {
+    errs.push("HA tâm thu phải lớn hơn HA tâm trương");
+  }
+
+  if (e.sp_o2 != null && e.sp_o2 > 100) errs.push("SpO2 không được > 100");
+
+  return errs;
+};
+
+
   // ===== Save vitals + conclusion + final ICD =====
   const saveEncounter = async () => {
     if (!current) return;
-
+    const normalized = normalizeVitals(current);
+    const errs = validateVitals(normalized);
+    if (errs.length) {
+      notifyError(errs.join("\n"));
+      return;
+    }
+    setCurrent(normalized);
     setLoading(true);
     try {
-      const bmi = current.bmi ?? calcBMI(current.weight, current.height);
+      const bmi =
+        normalized.bmi ?? calcBMI(normalized.weight, normalized.height);
 
-      const dto: UpdateEncounterPayload = {
-        // symptoms
-        initial_symptoms: current.initial_symptoms ?? undefined,
+      const payload: UpdateEncounterPayload = {
+        initial_symptoms: normalized.initial_symptoms ?? undefined,
 
-        // vitals
-        weight: current.weight ?? undefined,
-        height: current.height ?? undefined,
+        weight: normalized.weight ?? undefined,
+        height: normalized.height ?? undefined,
         bmi: bmi ?? undefined,
-        temperature: current.temperature ?? undefined,
-        pulse: current.pulse ?? undefined,
-        respiratory_rate: current.respiratory_rate ?? undefined,
-        bp_systolic: current.bp_systolic ?? undefined,
-        bp_diastolic: current.bp_diastolic ?? undefined,
-        sp_o2: current.sp_o2 ?? undefined,
+        temperature: normalized.temperature ?? undefined,
+        pulse: normalized.pulse ?? undefined,
+        respiratory_rate: normalized.respiratory_rate ?? undefined,
+        bp_systolic: normalized.bp_systolic ?? undefined,
+        bp_diastolic: normalized.bp_diastolic ?? undefined,
+        sp_o2: normalized.sp_o2 ?? undefined,
 
-        // conclusion + ICD
-        final_icd_code: current.final_icd_code ?? null,
-        doctor_conclusion: current.doctor_conclusion ?? undefined,
+        final_icd_code: normalized.final_icd_code ?? null,
+        doctor_conclusion: normalized.doctor_conclusion ?? undefined,
       };
 
-      await patchUpdateConsultation(current.encounter_id, dto);
-
-      await openEncounter(current.encounter_id);
+      await patchUpdateConsultation(normalized.encounter_id, payload);
+      await openEncounter(normalized.encounter_id);
       await loadQueue();
     } catch (e) {
       notifyError(`Lưu thông tin khám bệnh thất bại: ${e}`);
@@ -332,9 +472,18 @@ export default function DoctorPage() {
     if (!finalIcd || !conclusion) {
       console.log("Gọi notifyError!");
       notifyError(
-        "Cần nhập ICD10 (chẩn đoán cuối) và Kết luận bác sĩ trước khi hoàn thành."
+        "Cần nhập ICD10 (chẩn đoán cuối) và Kết luận bác sĩ trước khi hoàn thành.",
       );
       return;
+    }
+
+    const normalized = current ? normalizeVitals(current) : null;
+    if (normalized) {
+      const errs = validateVitals(normalized);
+      if (errs.length) {
+        notifyError(errs.join("\n"));
+        return;
+      }
     }
 
     setLoading(true);
@@ -433,7 +582,7 @@ export default function DoctorPage() {
                   size={16}
                   className={cn(
                     "text-secondary-700",
-                    loading && "animate-spin"
+                    loading && "animate-spin",
                   )}
                 />
               </button>
@@ -443,7 +592,7 @@ export default function DoctorPage() {
           <div
             className={cn(
               "h-[calc(100%-48px)] overflow-auto p-3",
-              !current && "opacity-40 pointer-events-none"
+              !current && "opacity-40 pointer-events-none",
             )}
           >
             <div className="border border-secondary-200 rounded-[2px] bg-white overflow-hidden">
@@ -461,7 +610,7 @@ export default function DoctorPage() {
                   <b>{current?.patient?.full_name ?? "--"}</b>
                 </Field>
                 <Field className="col-span-3" label="SĐT">
-                  {current?.patient?.phone ?? "--"}
+                  {current?.patient_phone ?? "--"}
                 </Field>
                 <Field className="col-span-5" label="Ngày khám">
                   {current?.visit_date
@@ -481,7 +630,7 @@ export default function DoctorPage() {
                       setCurrent((prev) =>
                         prev
                           ? { ...prev, initial_symptoms: e.target.value }
-                          : prev
+                          : prev,
                       )
                     }
                   />
@@ -499,8 +648,8 @@ export default function DoctorPage() {
                       onChange={(e) =>
                         setCurrent((p) =>
                           p
-                            ? { ...p, weight: Number(e.target.value) || null }
-                            : p
+                            ? { ...p, weight: toNumberOrNull(e.target.value) }
+                            : p,
                         )
                       }
                     />
@@ -516,8 +665,8 @@ export default function DoctorPage() {
                       onChange={(e) =>
                         setCurrent((p) =>
                           p
-                            ? { ...p, height: Number(e.target.value) || null }
-                            : p
+                            ? { ...p, height: toNumberOrNull(e.target.value) }
+                            : p,
                         )
                       }
                     />
@@ -536,7 +685,7 @@ export default function DoctorPage() {
                       }
                       onChange={(e) =>
                         setCurrent((p) =>
-                          p ? { ...p, bmi: Number(e.target.value) || null } : p
+                          p ? { ...p, bmi: toNumberOrNull(e.target.value) } : p,
                         )
                       }
                     />
@@ -552,8 +701,8 @@ export default function DoctorPage() {
                       onChange={(e) =>
                         setCurrent((p) =>
                           p
-                            ? { ...p, sp_o2: Number(e.target.value) || null }
-                            : p
+                            ? { ...p, sp_o2: toNumberOrNull(e.target.value) }
+                            : p,
                         )
                       }
                     />
@@ -572,9 +721,9 @@ export default function DoctorPage() {
                           p
                             ? {
                                 ...p,
-                                temperature: Number(e.target.value) || null,
+                                temperature: toNumberOrNull(e.target.value),
                               }
-                            : p
+                            : p,
                         )
                       }
                     />
@@ -589,9 +738,7 @@ export default function DoctorPage() {
                       value={current?.pulse ?? ""}
                       onChange={(e) =>
                         setCurrent((p) =>
-                          p
-                            ? { ...p, pulse: Number(e.target.value) || null }
-                            : p
+                          p ? { ...p, pulse: toIntOrNull(e.target.value) } : p,
                         )
                       }
                     />
@@ -609,10 +756,9 @@ export default function DoctorPage() {
                           p
                             ? {
                                 ...p,
-                                respiratory_rate:
-                                  Number(e.target.value) || null,
+                                respiratory_rate: toIntOrNull(e.target.value),
                               }
-                            : p
+                            : p,
                         )
                       }
                     />
@@ -632,9 +778,9 @@ export default function DoctorPage() {
                             p
                               ? {
                                   ...p,
-                                  bp_systolic: Number(e.target.value) || null,
+                                  bp_systolic: toIntOrNull(e.target.value),
                                 }
-                              : p
+                              : p,
                           )
                         }
                       />
@@ -647,9 +793,9 @@ export default function DoctorPage() {
                             p
                               ? {
                                   ...p,
-                                  bp_diastolic: Number(e.target.value) || null,
+                                  bp_diastolic: toIntOrNull(e.target.value),
                                 }
-                              : p
+                              : p,
                           )
                         }
                       />
@@ -693,7 +839,10 @@ export default function DoctorPage() {
                             if (e.key === "ArrowDown") {
                               e.preventDefault();
                               setIcdActiveIndex((i) =>
-                                Math.min(i + 1, Math.max(icdList.length - 1, 0))
+                                Math.min(
+                                  i + 1,
+                                  Math.max(icdList.length - 1, 0),
+                                ),
                               );
                             }
 
@@ -731,7 +880,7 @@ export default function DoctorPage() {
 
                           {!icdLoading &&
                             icdList.length === 0 &&
-                            icdQuery.trim().length >= 2 && (
+                            icdQuery.trim().length >= 1 && (
                               <div className="px-2 py-2 text-sm text-secondary-500">
                                 Không tìm thấy ICD phù hợp.
                               </div>
@@ -745,7 +894,7 @@ export default function DoctorPage() {
                                 className={cn(
                                   "w-full text-left px-2 py-2 border-b border-secondary-100 text-sm",
                                   "hover:bg-primary-0",
-                                  idx === icdActiveIndex && "bg-primary-100/60"
+                                  idx === icdActiveIndex && "bg-primary-100/60",
                                 )}
                                 onMouseEnter={() => setIcdActiveIndex(idx)}
                                 onMouseDown={(e) => e.preventDefault()} // giữ focus input
@@ -768,7 +917,7 @@ export default function DoctorPage() {
                       value={current?.doctor_conclusion ?? ""}
                       onChange={(e) =>
                         setCurrent((p) =>
-                          p ? { ...p, doctor_conclusion: e.target.value } : p
+                          p ? { ...p, doctor_conclusion: e.target.value } : p,
                         )
                       }
                       placeholder="Nhập kết luận, hướng dẫn, dặn dò..."

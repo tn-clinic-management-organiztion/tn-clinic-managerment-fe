@@ -28,6 +28,7 @@ export interface MedicalEncounter {
   patient?: Patient | null;
 
   initial_symptoms?: string | null;
+  patient_phone?: string | null;
 
   weight?: number | null;
   height?: number | null;
@@ -40,7 +41,7 @@ export interface MedicalEncounter {
   sp_o2?: number | null;
 
   doctor_conclusion?: string | null;
-};
+}
 
 export interface CreateEncounterPayload {
   patient_id?: string;

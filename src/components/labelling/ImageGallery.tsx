@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getListResultImages, postDownloadAnnotation } from "@/services/ai-core.api";
-import { uploadResultImage } from "@/services/results_image.api"; // Service upload cũ
+import { uploadResultImage } from "@/services/results_image.api";
 import {
   Calendar,
   User,
@@ -21,7 +21,7 @@ import { useSession } from "next-auth/react";
 import { notifyError, notifySuccess } from "@/components/toast";
 
 // --- CONFIG ---
-const LIMIT = 8; // Số ảnh mỗi trang
+const LIMIT = 8;
 
 interface ImageItem {
   image_id: string;
@@ -60,7 +60,7 @@ export default function ImageGallery() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // 1. Debounce Search (Để không gọi API liên tục khi gõ)
+  // 1. Debounce Search
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -195,7 +195,6 @@ export default function ImageGallery() {
           <button
             onClick={async () => {
               try {
-                // TODO: thay dto theo backend bạn cần
                 const dto = {
                   // project_id: "...",
                   // image_ids: [...],
