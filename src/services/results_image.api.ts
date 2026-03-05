@@ -15,7 +15,7 @@ export const uploadResultImage = async (
 
   if (resultId) formData.append("result_id", resultId);
 
-  const res = await axiosInstance.post(`results/images/upload`, formData, {
+  const res = await axiosInstance.post(`/paraclinical/results/images/upload`, formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
 

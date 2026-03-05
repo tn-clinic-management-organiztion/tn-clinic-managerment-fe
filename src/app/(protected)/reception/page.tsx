@@ -37,6 +37,7 @@ import {
   getTicketsByStatusReception,
   patchUpdateTicket,
   postCallSpecific,
+  postCreateInitialConsultant,
   postQueueTicketConsultation,
   postQueueTicketWalkin,
   postSkipTicket,
@@ -46,6 +47,7 @@ import { notifyError, notifySuccess } from "@/components/toast";
 import ServiceSelectModal from "@/app/(protected)/reception/ServiceSelectModal";
 import { isValidVNCCCD, isValidVNPhone } from "@/helpers";
 import PatientSearchResultModal from "@/app/(protected)/reception/PatientSearchResultModal";
+import { CreateInitialConsultantPayload } from "@/types/reception";
 
 export default function ReceptionPage() {
   // =========================
@@ -269,6 +271,7 @@ export default function ReceptionPage() {
   // =========================
   const handleKioskTicket = async () => {
     const roomId = session?.user?.assigned_room_id;
+    console.log("Rút số tại phòng:", roomId);
     if (!roomId) {
       notifyError("Không xác định được phòng tiếp đón (assigned_room_id).");
       return;
@@ -448,74 +451,22 @@ export default function ReceptionPage() {
     }
 
     try {
-      let finalPatientId = patientForm.patient_id;
-
-      // B1) PATIENT: tạo mới hoặc cập nhật
-      if (!finalPatientId) {
-        const newPatient = await postCreatePatient({
-          cccd: patientForm.cccd,
-          full_name: patientForm.full_name,
-          dob: patientForm.dob,
-          gender: patientForm.gender,
-          phone: patientForm.phone,
-          address: patientForm.address,
-          medical_history: patientForm.medical_history,
-          allergy_history: patientForm.allergy_history,
-        });
-        finalPatientId = newPatient?.patient_id || newPatient?.id;
-
-        if (!finalPatientId)
-          throw new Error("Không lấy được ID bệnh nhân sau khi tạo mới.");
-      } else {
-        await putUpdatePatient(finalPatientId, {
-          cccd: patientForm.cccd,
-          full_name: patientForm.full_name,
-          dob: patientForm.dob,
-          gender: patientForm.gender,
-          phone: patientForm.phone,
-          address: patientForm.address,
-          medical_history: patientForm.medical_history,
-          allergy_history: patientForm.allergy_history,
-        });
-      }
-
-      // B2) ENCOUNTER: tạo phiếu khám
-      const newEncounter = await postCreateEncounter({
-        patient_id: finalPatientId,
+      const createInitialConsultant: CreateInitialConsultantPayload = {
+        ticket_id: activeTicket.ticket_id!,
+        patient_id: patientForm.patient_id || undefined,
+        cccd: patientForm.cccd || undefined,
+        full_name: patientForm.full_name,
+        dob: patientForm.dob,
+        gender: patientForm.gender,
+        phone: patientForm.phone,
+        address: patientForm.address || undefined,
+        medical_history: patientForm.medical_history || undefined,
+        allergy_history: patientForm.allergy_history || undefined,
         assigned_room_id: selectedTargetRoom,
-      });
-      const encounterId = newEncounter?.encounter_id || newEncounter?.id;
-      if (!encounterId)
-        throw new Error("Không tạo được phiếu khám (Encounter).");
-
-      // 3. CREAT SERVICE REQUEST FOR CONSULTATION
-      // Gọi API tạo service_request với service_id của dịch vụ khám
-      await fetch(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/service-orders/create-initial`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            encounterId: encounterId,
-            serviceId: selectedServiceId,
-            requestedBy: session?.user?.id,
-          }),
-        },
-      );
-
-      // B4) CONSULTATION TICKET: tạo vé cho bác sĩ
-      await postQueueTicketConsultation({
-        room_id: selectedTargetRoom,
-        ticket_type: "CONSULTATION",
-        encounter_id: encounterId,
-        service_ids: [selectedServiceId],
-      });
-
-      // B5) COMPLETE REGISTRATION TICKET
-      await patchUpdateTicket(activeTicket.ticket_id || "", {
-        status: "COMPLETED",
-      });
-
+        service_id: selectedServiceId,
+      };
+      console.log("createInitial: ", createInitialConsultant);
+      await postCreateInitialConsultant(createInitialConsultant);
       setTickets((prev) =>
         prev.map((t) =>
           t.ticket_id === activeTicket.ticket_id
@@ -526,9 +477,7 @@ export default function ReceptionPage() {
 
       setActiveTicket(null);
       resetReceptionForm();
-      notifySuccess(
-        `Đã tạo phiếu khám thành công!\n📋 Mã phiếu khám: ${encounterId}\n\n`,
-      );
+      notifySuccess(`Đã tạo phiếu khám thành công!`);
     } catch (error: any) {
       console.error("Lỗi quy trình tiếp đón:", error);
       const errorMessage =

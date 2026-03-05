@@ -103,6 +103,8 @@ export const authConfig: NextAuthConfig = {
 
         if (!payload?.sub) return null;
 
+        console.log("payload from backend:", payload);
+
         // NextAuth "user" object -> đưa data cần dùng vào đây
         return {
           id: payload.sub,

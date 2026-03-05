@@ -39,7 +39,7 @@ export type GetWaitingTicketsQuery = {
   source?: TicketSource;
 };
 
-export type GetInProgressTicketQuery = Partial<GetWaitingTicketsQuery>
+export type GetInProgressTicketQuery = Partial<GetWaitingTicketsQuery>;
 
 export type CreateTicketPayload = {
   room_id: number;
@@ -52,4 +52,19 @@ export type CreateTicketPayload = {
 export type UpdateTicketPayload = {
   status?: TicketStatus;
   service_ids?: number[];
+};
+
+export type CreateInitialConsultantPayload = {
+  ticket_id: string;
+  patient_id?: string;
+  cccd?: string;
+  full_name: string;
+  dob: string;
+  gender: string;
+  phone: string;
+  address?: string;
+  medical_history?: string;
+  allergy_history?: string;
+  assigned_room_id: number;
+  service_id: number;
 };

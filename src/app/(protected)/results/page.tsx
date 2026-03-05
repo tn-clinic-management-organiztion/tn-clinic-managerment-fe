@@ -14,8 +14,6 @@ import {
   postCompleteTicket,
 } from "@/services/reception";
 
-import { getRequestItemsByEncouter } from "@/services/services";
-import { getFindResultByRequestItemId } from "@/services/results";
 import { getAllServices } from "@/services/services";
 import ResultReportModal from "@/app/(protected)/results/CreateResultReportModal.modal";
 import ShowResultReportModal from "@/app/(protected)/results/ShowResultReportModal.modal";
@@ -23,14 +21,16 @@ import UpdateResultReportModal from "@/app/(protected)/results/UpdateResultRepor
 import {
   QueueTicket,
   TicketStatus,
-  Patient,
-  MedicalEncounter,
   ServiceRequestItem,
   ServiceResult,
   Service,
 } from "@/types";
 import { useQueueSocket } from "@/hook/useQueueSocket";
 import { notifyError } from "@/components/toast";
+import {
+  getFindResultByRequestItemId,
+  getTicketItems,
+} from "@/services/results";
 
 // ===== Helpers =====
 const fmt = (v?: string | null) => {
@@ -52,7 +52,7 @@ export default function ResultsPage() {
     | undefined;
   const technicianId = (session?.user as any)?.id as string | undefined;
 
-  const { isConnected, tickets, lastEvent, joinRoom } = useQueueSocket({
+  const { isConnected, tickets, lastEvent } = useQueueSocket({
     roomId: session?.user.assigned_room_id,
     autoConnect: true,
   });
@@ -77,12 +77,12 @@ export default function ResultsPage() {
 
   // Selected ticket + data
   const [currentTicket, setCurrentTicket] = useState<QueueTicket | null>(null);
-  const [requestItems, setRequestItems] = useState<ServiceRequestItem[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
+  const [ticketItems, setTicketItems] = useState<ServiceRequestItem[]>([]);
+  const [loadingTicketItems, setLoadingTicketItems] = useState(false);
 
-  // Service results map: item_id -> ServiceResultDto
+  // Service results map: item_id -> ServiceResult
   const [resultsMap, setResultsMap] = useState<Map<string, ServiceResult>>(
-    new Map()
+    new Map(),
   );
 
   // Service name map
@@ -90,19 +90,29 @@ export default function ResultsPage() {
 
   // ===== CREATE MODAL STATE =====
   const [openCreateModal, setOpenCreateModal] = useState(false);
-  const [createModalItemId, setCreateModalItemId] = useState<string | null>(null);
-  const [createModalServiceLabel, setCreateModalServiceLabel] = useState<string>("");
+  const [createModalItemId, setCreateModalItemId] = useState<string | null>(
+    null,
+  );
+  const [createModalServiceLabel, setCreateModalServiceLabel] =
+    useState<string>("");
 
   // ===== SHOW MODAL STATE =====
   const [openShowModal, setOpenShowModal] = useState(false);
-  const [showModalResult, setShowModalResult] = useState<ServiceResult | null>(null);
-  const [showModalServiceLabel, setShowModalServiceLabel] = useState<string>("");
+  const [showModalResult, setShowModalResult] = useState<ServiceResult | null>(
+    null,
+  );
+  const [showModalServiceLabel, setShowModalServiceLabel] =
+    useState<string>("");
 
-  // ===== UPDATE MODAL STATE (RIÊNG BIỆT) =====
+  // ===== UPDATE MODAL STATE =====
   const [openUpdateModal, setOpenUpdateModal] = useState(false);
-  const [updateModalResult, setUpdateModalResult] = useState<ServiceResult | null>(null);
-  const [updateModalServiceLabel, setUpdateModalServiceLabel] = useState<string>("");
-  const [updateModalItemId, setUpdateModalItemId] = useState<string | null>(null);
+  const [updateModalResult, setUpdateModalResult] =
+    useState<ServiceResult | null>(null);
+  const [updateModalServiceLabel, setUpdateModalServiceLabel] =
+    useState<string>("");
+  const [updateModalItemId, setUpdateModalItemId] = useState<string | null>(
+    null,
+  );
 
   const normalizeList = <T,>(raw: any): T[] => {
     if (Array.isArray(raw)) return raw;
@@ -139,7 +149,7 @@ export default function ResultsPage() {
 
     (async () => {
       try {
-        const raw = await getAllServices({ page: 1, limit: 50 } as any);
+        const raw = await getAllServices({ page: 1, limit: 100 } as any);
         const list = normalizeList<Service>(raw);
         const m = new Map<number, string>();
         list.forEach((s) => m.set(s.service_id, s.service_name));
@@ -152,11 +162,12 @@ export default function ResultsPage() {
 
   const waitingList = useMemo(
     () => queue.filter((x) => waitingBucket(x.status as TicketStatus)),
-    [queue]
+    [queue],
   );
+
   const inProgressList = useMemo(
     () => queue.filter((x) => inProgressBucket(x.status as TicketStatus)),
-    [queue]
+    [queue],
   );
 
   // ===== Load results for items =====
@@ -167,53 +178,53 @@ export default function ResultsPage() {
       items.map(async (item) => {
         try {
           const results = await getFindResultByRequestItemId(item.item_id);
-          // API trả về array, lấy result đầu tiên (hoặc mới nhất)
           if (results && results.length > 0) {
             newMap.set(item.item_id, results[0]);
           }
-          console.log("result[0]: ", results[0]);
         } catch (e) {
           // Item chưa có result, bỏ qua
         }
-      })
+      }),
     );
 
     setResultsMap(newMap);
   };
 
-  // ===== When select a ticket: load request items + results =====
+  // =====  When select a ticket: load items + results =====
   const openTicket = async (t: QueueTicket) => {
     setCurrentTicket(t);
-    setRequestItems([]);
+    setTicketItems([]);
     setResultsMap(new Map());
 
-    if (!t.encounter_id) return;
+    //  Validate ticket_id
+    if (!t.ticket_id) {
+      console.error("Ticket không có ticket_id");
+      notifyError("Ticket không hợp lệ");
+      return;
+    }
 
-    setLoadingItems(true);
+    setLoadingTicketItems(true);
+
     try {
-      const res = await getRequestItemsByEncouter(t.encounter_id);
-      const items = normalizeList<ServiceRequestItem>(res);
-      setRequestItems(items ?? []);
+      //  Load items của ticket
+      const ticketItemsRes = await getTicketItems(t.ticket_id);
+      const itemsForTicket = normalizeList<ServiceRequestItem>(ticketItemsRes);
+      setTicketItems(itemsForTicket ?? []);
 
-      // Load results cho tất cả items
-      if (items && items.length > 0) {
-        await loadResultsForItems(items);
+      //  Load results
+      if (itemsForTicket && itemsForTicket.length > 0) {
+        await loadResultsForItems(itemsForTicket);
       }
     } catch (e) {
-      console.error("load request items error:", e);
-      setRequestItems([]);
+      console.error("load ticket items error:", e);
+      notifyError("Không thể tải danh sách dịch vụ");
+      setTicketItems([]);
     } finally {
-      setLoadingItems(false);
+      setLoadingTicketItems(false);
     }
   };
 
-  // ===== Filter items by ticket.service_ids =====
-  const itemsForThisTicket = useMemo(() => {
-    if (!currentTicket) return [];
-    const svcs = new Set<number>((currentTicket.service_ids ?? []) as number[]);
-    if (svcs.size === 0) return [];
-    return requestItems.filter((it) => svcs.has(it.service_id));
-  }, [currentTicket, requestItems]);
+  const itemsForThisTicket = ticketItems;
 
   // Check if all items have results
   const allReported = useMemo(() => {
@@ -233,6 +244,7 @@ export default function ResultsPage() {
       await loadQueue();
     } catch (e) {
       console.error(e);
+      notifyError("Lỗi khi gọi ticket");
     }
   };
 
@@ -243,68 +255,75 @@ export default function ResultsPage() {
       setTab("IN_PROGRESS");
     } catch (e) {
       console.error(e);
+      notifyError("Lỗi khi bắt đầu ticket");
     }
   };
 
+  //  skipTicket - đã sửa
   const skipTicket = async (ticketId: string) => {
     try {
       await postSkipTicket(ticketId);
       await loadQueue();
       setCurrentTicket(null);
-      setRequestItems([]);
+      setTicketItems([]); //  Thêm
       setResultsMap(new Map());
     } catch (e) {
       console.error(e);
+      notifyError("Lỗi khi skip ticket");
     }
   };
 
+  //  completeTicket - đã sửa
   const completeTicket = async (ticketId: string) => {
     try {
       await postCompleteTicket(ticketId);
       await loadQueue();
       setCurrentTicket(null);
-      setRequestItems([]);
+      setTicketItems([]); //  Thêm
       setResultsMap(new Map());
     } catch (e) {
       console.error(e);
+      notifyError("Lỗi khi hoàn thành ticket");
     }
   };
 
   // ===== MODAL HANDLERS =====
-  
-  // Mở modal tạo báo cáo mới
   const openCreateReport = (item: ServiceRequestItem) => {
-    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+    const name =
+      serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setCreateModalServiceLabel(`${item.service_id} • ${name}`);
     setCreateModalItemId(item.item_id);
     setOpenCreateModal(true);
   };
 
-  // Mở modal xem báo cáo (read-only)
   const openShowReport = (item: ServiceRequestItem, result: ServiceResult) => {
-    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+    const name =
+      serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setShowModalServiceLabel(`${item.service_id} • ${name}`);
     setShowModalResult(result);
     setOpenShowModal(true);
   };
 
-  // Mở modal sửa báo cáo
-  const openUpdateReport = (item: ServiceRequestItem, result: ServiceResult) => {
-    const name = serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
+  const openUpdateReport = (
+    item: ServiceRequestItem,
+    result: ServiceResult,
+  ) => {
+    const name =
+      serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setUpdateModalServiceLabel(`${item.service_id} • ${name}`);
     setUpdateModalResult(result);
     setUpdateModalItemId(item.item_id);
     setOpenUpdateModal(true);
   };
 
-  // ===== Reload current ticket data after saving =====
+  // =====  Reload current ticket data after saving =====
   const reloadCurrentTicketData = async () => {
-    if (!currentTicket?.encounter_id) return;
+    if (!currentTicket?.ticket_id) return; //  Check ticket_id
 
     try {
-      const res = await getRequestItemsByEncouter(currentTicket.encounter_id);
-      const items = normalizeList<ServiceRequestItem>(res);
-      setRequestItems(items ?? []);
+      const ticketItemsRes = await getTicketItems(currentTicket.ticket_id); //  Dùng getTicketItems
+      const items = normalizeList<ServiceRequestItem>(ticketItemsRes);
+      setTicketItems(items ?? []); //  Set ticketItems
 
       if (items && items.length > 0) {
         await loadResultsForItems(items);
@@ -349,7 +368,7 @@ export default function ResultsPage() {
                   size={16}
                   className={cn(
                     "text-secondary-700",
-                    loadingQueue && "animate-spin"
+                    loadingQueue && "animate-spin",
                   )}
                 />
               </button>
@@ -431,13 +450,14 @@ export default function ResultsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {loadingItems ? (
+                        {/*  Dùng loadingTicketItems */}
+                        {loadingTicketItems ? (
                           <tr>
                             <td
                               colSpan={4}
                               className="p-8 text-center text-secondary-500"
                             >
-                              Đang tải request items...
+                              Đang tải dịch vụ...
                             </td>
                           </tr>
                         ) : itemsForThisTicket.length === 0 ? (
@@ -446,12 +466,11 @@ export default function ResultsPage() {
                               colSpan={4}
                               className="p-8 text-center text-secondary-500"
                             >
-                              Không tìm thấy request-items khớp với service_ids
-                              của ticket này.
+                              Không có dịch vụ nào trong phiếu này.
                             </td>
                           </tr>
                         ) : (
-                          itemsForThisTicket.map((it) => {
+                          itemsForThisTicket.map((it, index) => {
                             const name =
                               serviceMap.get(it.service_id) ??
                               `Dịch vụ #${it.service_id}`;
@@ -460,7 +479,7 @@ export default function ResultsPage() {
 
                             return (
                               <tr
-                                key={it.item_id}
+                                key={`${it.item_id}-${index}`}
                                 className="border-b border-secondary-100 hover:bg-secondary-50"
                               >
                                 <td className="p-2 font-semibold text-secondary-700">
@@ -489,7 +508,7 @@ export default function ResultsPage() {
                                       "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold",
                                       done
                                         ? "bg-success-50 text-success-700 border-success-200"
-                                        : "bg-warning-50 text-warning-700 border-warning-200"
+                                        : "bg-warning-50 text-warning-700 border-warning-200",
                                     )}
                                   >
                                     {done ? (
@@ -520,7 +539,9 @@ export default function ResultsPage() {
                                         </SquareButton>
                                         <SquareButton
                                           className="bg-secondary-100 hover:bg-secondary-200 border-secondary-200 text-secondary-900"
-                                          onClick={() => openUpdateReport(it, result)}
+                                          onClick={() =>
+                                            openUpdateReport(it, result)
+                                          }
                                           disabled={!technicianId}
                                           title="Sửa báo cáo"
                                         >
@@ -584,7 +605,7 @@ export default function ResultsPage() {
                   className={cn(
                     "border border-secondary-200 bg-white rounded-[2px] transition-all",
                     currentTicket?.ticket_id === t.ticket_id &&
-                      "ring-2 ring-primary-200 shadow-sm"
+                      "ring-2 ring-primary-200 shadow-sm",
                   )}
                 >
                   <div className="p-2 border-b border-secondary-100">
@@ -645,19 +666,18 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {/* Modal tạo báo cáo mới */}
+      {/* Modals */}
       <ResultReportModal
         open={openCreateModal}
         onClose={() => setOpenCreateModal(false)}
         serviceLabel={createModalServiceLabel}
         itemId={createModalItemId}
         technicianId={technicianId ?? null}
-        onSaved={async (resultId) => {
+        onSaved={async () => {
           await reloadCurrentTicketData();
         }}
       />
 
-      {/* Modal xem báo cáo (read-only) */}
       <ShowResultReportModal
         open={openShowModal}
         onClose={() => setOpenShowModal(false)}
@@ -665,7 +685,6 @@ export default function ResultsPage() {
         serviceLabel={showModalServiceLabel}
       />
 
-      {/* Modal sửa báo cáo */}
       <UpdateResultReportModal
         open={openUpdateModal}
         onClose={() => setOpenUpdateModal(false)}
@@ -673,7 +692,7 @@ export default function ResultsPage() {
         serviceLabel={updateModalServiceLabel}
         itemId={updateModalItemId}
         technicianId={technicianId ?? null}
-        onSaved={async (resultId) => {
+        onSaved={async () => {
           await reloadCurrentTicketData();
         }}
       />

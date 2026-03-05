@@ -21,7 +21,6 @@ import {
   cn,
 } from "@/components/ui/square";
 
-import ServiceOrderModal from "./ServiceOrderModal.modal";
 import ResultsModal from "./ResultsModal.modal";
 
 // ====== encounters services ======
@@ -39,10 +38,12 @@ import { getQueueTicketsTodayByRoomId } from "@/services/reception";
 import {
   EncounterStatus,
   MedicalEncounter,
+  StartConsultationPayload,
   UpdateEncounterPayload,
 } from "@/types";
 import { RefIcd10 } from "@/types/icd10";
 import { toast } from "react-toastify";
+import ServiceRequestModal from "@/app/(protected)/encounters/ServiceRequestModal.modal";
 
 // ====== Helpers ======
 const calcBMI = (w?: number | null, h?: number | null) => {
@@ -116,7 +117,7 @@ export default function DoctorPage() {
 
   useEffect(() => {
     if (!lastEvent) return;
-
+    console.log("Hehe lastEvent: ", lastEvent);
     switch (lastEvent.type) {
       case "ticket:created":
         setQueue((q) => [...q, lastEvent.ticket.encounter]);
@@ -310,11 +311,10 @@ export default function DoctorPage() {
 
     setLoading(true);
     try {
-      await postStartConsultation(encounter.encounter_id, {
+      const startConsulatationPayload : StartConsultationPayload = {
         doctor_id: doctorId,
-        assigned_room_id:
-          encounter.assigned_room_id ?? roomIdFromSession ?? undefined,
-      });
+      }
+      await postStartConsultation(encounter.encounter_id, startConsulatationPayload);
 
       await loadQueue();
       await openEncounter(encounter.encounter_id);
@@ -325,100 +325,99 @@ export default function DoctorPage() {
     }
   };
 
-const validateVitals = (e: MedicalEncounter) => {
-  const errs: string[] = [];
+  const validateVitals = (e: MedicalEncounter) => {
+    const errs: string[] = [];
 
-  // not negative =====
-  const notNegative = (label: string, v: number | null | undefined) => {
-    if (v == null) return;
-    if (!Number.isFinite(v)) errs.push(`${label} không hợp lệ`);
-    else if (v < 0) errs.push(`${label} không được âm`);
-  };
+    // not negative =====
+    const notNegative = (label: string, v: number | null | undefined) => {
+      if (v == null) return;
+      if (!Number.isFinite(v)) errs.push(`${label} không hợp lệ`);
+      else if (v < 0) errs.push(`${label} không được âm`);
+    };
 
-  notNegative("Cân nặng", e.weight);
-  notNegative("Chiều cao", e.height);
-  notNegative("BMI", e.bmi);
-  notNegative("Nhiệt độ", e.temperature);
-  notNegative("Mạch", e.pulse);
-  notNegative("Nhịp thở", e.respiratory_rate);
-  notNegative("HA tâm thu", e.bp_systolic);
-  notNegative("HA tâm trương", e.bp_diastolic);
-  notNegative("SpO2", e.sp_o2);
+    notNegative("Cân nặng", e.weight);
+    notNegative("Chiều cao", e.height);
+    notNegative("BMI", e.bmi);
+    notNegative("Nhiệt độ", e.temperature);
+    notNegative("Mạch", e.pulse);
+    notNegative("Nhịp thở", e.respiratory_rate);
+    notNegative("HA tâm thu", e.bp_systolic);
+    notNegative("HA tâm trương", e.bp_diastolic);
+    notNegative("SpO2", e.sp_o2);
 
-  // ===== Numeric (precision/scale)  =====
-  const maxByNumeric = (precision: number, scale: number) => {
-    // max = 10^(p-s) - 10^(-s)
-    return Math.pow(10, precision - scale) - Math.pow(10, -scale);
-  };
+    // ===== Numeric (precision/scale)  =====
+    const maxByNumeric = (precision: number, scale: number) => {
+      // max = 10^(p-s) - 10^(-s)
+      return Math.pow(10, precision - scale) - Math.pow(10, -scale);
+    };
 
-  const hasTooManyDecimals = (v: number, scale: number) => {
-    const p = Math.pow(10, scale);
-    return Math.round(v * p) !== v * p;
-  };
+    const hasTooManyDecimals = (v: number, scale: number) => {
+      const p = Math.pow(10, scale);
+      return Math.round(v * p) !== v * p;
+    };
 
-  const checkNumeric = (
-    label: string,
-    v: number | null | undefined,
-    precision: number,
-    scale: number,
-  ) => {
-    if (v == null) return;
-    if (!Number.isFinite(v)) {
-      errs.push(`${label} không hợp lệ`);
-      return;
+    const checkNumeric = (
+      label: string,
+      v: number | null | undefined,
+      precision: number,
+      scale: number,
+    ) => {
+      if (v == null) return;
+      if (!Number.isFinite(v)) {
+        errs.push(`${label} không hợp lệ`);
+        return;
+      }
+
+      // check scale
+      if (hasTooManyDecimals(v, scale)) {
+        errs.push(`${label} chỉ được tối đa ${scale} chữ số thập phân`);
+      }
+
+      // check max theo precision
+      const max = maxByNumeric(precision, scale);
+      if (Math.abs(v) > max) {
+        errs.push(`${label} vượt quá giới hạn lưu (${max})`);
+      }
+    };
+
+    // entity numeric:
+    checkNumeric("Cân nặng", e.weight, 5, 2);
+    checkNumeric("Chiều cao", e.height, 5, 2);
+    checkNumeric("BMI", e.bmi, 4, 2);
+    checkNumeric("Nhiệt độ", e.temperature, 4, 1);
+    checkNumeric("SpO2", e.sp_o2, 5, 2);
+
+    const MAX_INT = 2147483647;
+
+    const checkInt = (label: string, v: number | null | undefined) => {
+      if (v == null) return;
+      if (!Number.isFinite(v)) {
+        errs.push(`${label} không hợp lệ`);
+        return;
+      }
+      if (!Number.isInteger(v)) errs.push(`${label} phải là số nguyên`);
+      if (v > MAX_INT) errs.push(`${label} vượt quá giới hạn lưu (${MAX_INT})`);
+    };
+
+    checkInt("Mạch", e.pulse);
+    checkInt("Nhịp thở", e.respiratory_rate);
+    checkInt("HA tâm thu", e.bp_systolic);
+    checkInt("HA tâm trương", e.bp_diastolic);
+
+    if (
+      e.bp_systolic != null &&
+      e.bp_diastolic != null &&
+      Number.isFinite(e.bp_systolic) &&
+      Number.isFinite(e.bp_diastolic) &&
+      e.bp_systolic <= e.bp_diastolic
+    ) {
+      errs.push("HA tâm thu phải lớn hơn HA tâm trương");
     }
 
-    // check scale
-    if (hasTooManyDecimals(v, scale)) {
-      errs.push(`${label} chỉ được tối đa ${scale} chữ số thập phân`);
-    }
+    if (e.sp_o2 != null && e.sp_o2 > 100) errs.push("SpO2 không được > 100");
 
-    // check max theo precision
-    const max = maxByNumeric(precision, scale);
-    if (Math.abs(v) > max) {
-      errs.push(`${label} vượt quá giới hạn lưu (${max})`);
-    }
+    return errs;
   };
-
-  // entity numeric:
-  checkNumeric("Cân nặng", e.weight, 5, 2);
-  checkNumeric("Chiều cao", e.height, 5, 2);
-  checkNumeric("BMI", e.bmi, 4, 2);
-  checkNumeric("Nhiệt độ", e.temperature, 4, 1);
-  checkNumeric("SpO2", e.sp_o2, 5, 2);
-
-  const MAX_INT = 2147483647;
-
-  const checkInt = (label: string, v: number | null | undefined) => {
-    if (v == null) return;
-    if (!Number.isFinite(v)) {
-      errs.push(`${label} không hợp lệ`);
-      return;
-    }
-    if (!Number.isInteger(v)) errs.push(`${label} phải là số nguyên`);
-    if (v > MAX_INT) errs.push(`${label} vượt quá giới hạn lưu (${MAX_INT})`);
-  };
-
-  checkInt("Mạch", e.pulse);
-  checkInt("Nhịp thở", e.respiratory_rate);
-  checkInt("HA tâm thu", e.bp_systolic);
-  checkInt("HA tâm trương", e.bp_diastolic);
-
-  if (
-    e.bp_systolic != null &&
-    e.bp_diastolic != null &&
-    Number.isFinite(e.bp_systolic) &&
-    Number.isFinite(e.bp_diastolic) &&
-    e.bp_systolic <= e.bp_diastolic
-  ) {
-    errs.push("HA tâm thu phải lớn hơn HA tâm trương");
-  }
-
-  if (e.sp_o2 != null && e.sp_o2 > 100) errs.push("SpO2 không được > 100");
-
-  return errs;
-};
-
 
   // ===== Save vitals + conclusion + final ICD =====
   const saveEncounter = async () => {
@@ -999,7 +998,7 @@ const validateVitals = (e: MedicalEncounter) => {
       </div>
 
       {/* ===== Modals ===== */}
-      <ServiceOrderModal
+      <ServiceRequestModal
         open={openOrder}
         onClose={() => setOpenOrder(false)}
         encounterId={current?.encounter_id ?? null}

@@ -13,7 +13,7 @@ export interface QueryCategoryDto extends PageQueryDto {
 
 export const getAllServices = async (query: QueryServiceDto) => {
   try {
-    const response = await axiosInstance.get("/services", {
+    const response = await axiosInstance.get("system/services", {
       params: query,
     });
     return response.data.data;
@@ -25,7 +25,7 @@ export const getAllServices = async (query: QueryServiceDto) => {
 
 export const getAllServiceCategories = async (dto: QueryCategoryDto) => {
   try {
-    const response = await axiosInstance.get("/services/categories", {
+    const response = await axiosInstance.get("system/services/categories", {
       params: dto,
     });
     return response.data.data;
@@ -38,7 +38,7 @@ export const getAllServiceCategories = async (dto: QueryCategoryDto) => {
 export const getRoomsForService = async (serviceId: string) => {
   try {
     const response = await axiosInstance.get(
-      `/services/room-service/${serviceId}/rooms`
+      `system/services/room-service/${serviceId}/rooms`
     );
     return response.data.data;
   } catch (error) {
@@ -50,7 +50,7 @@ export const getRoomsForService = async (serviceId: string) => {
 export const getAssignedServicesByEncounter = async (encounterId: string) => {
   try {
     const res = await axiosInstance.get(
-      `/services/encounters/${encounterId}/assigned-services`
+      `system/services/encounters/${encounterId}/assigned-services`
     );
     return res.data.data;
   } catch (error) {
@@ -63,7 +63,7 @@ export const postCreateServiceRequestsByDoctor = async (
   dto: CreateServiceRequestPayload
 ) => {
   try {
-    const response = await axiosInstance.post(`service-orders`, dto);
+    const response = await axiosInstance.post(`paraclinical/service-requests`, dto);
     return response.data.data;
   } catch (error) {
     console.error("Create service requests by doctor  error: ", error);
@@ -74,11 +74,23 @@ export const postCreateServiceRequestsByDoctor = async (
 export const getRequestItemsByEncouter = async (id: string) => {
   try {
     const response = await axiosInstance.get(
-      `service-orders/encounter/${id}/items`
+      `paraclinical/service-requests/encounter/${id}/items`
     );
     return response.data.data;
   } catch (error) {
     console.error("Get request ticket by encouterId error: ", error);
+    throw error;
+  }
+};
+
+export const getClsItemsByEncounter = async (encounterId: string) => {
+  try {
+    const response = await axiosInstance.get(
+      `paraclinical/service-requests/encounter/${encounterId}/cls-items`
+    );
+    return response.data;
+  } catch (error) {
+    console.error("Get CLS items error:", error);
     throw error;
   }
 };

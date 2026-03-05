@@ -5,17 +5,17 @@ import {
   CreateTicketPayload,
   UpdateTicketPayload,
 } from "@/types";
-import { GetInProgressTicketQuery } from "@/types/reception";
+import { CreateInitialConsultantPayload, GetInProgressTicketQuery } from "@/types/reception";
 
 export const getTicketsByStatusReception = async (
   roomId: number,
   status: string, // "WAITING" | "CALLED" | "IN_PROGRESS" | "WAITING,CALLED"
-  query?: { ticket_type?: string; source?: string }
+  query?: { ticket_type?: string; source?: string },
 ) => {
   try {
     const response = await axiosInstance.get(
-      `/reception/queue/tickets/status/${status}/room/${roomId}`,
-      { params: query }
+      `/queue/tickets/status/${status}/room/${roomId}`,
+      { params: query },
     );
     return response.data.data;
   } catch (error) {
@@ -24,10 +24,9 @@ export const getTicketsByStatusReception = async (
   }
 };
 
-
 export const postQueueTicketWalkin = async (payload: CreateTicketPayload) => {
   try {
-    const res = await axiosInstance.post("/reception/queue/tickets", {
+    const res = await axiosInstance.post("/queue/tickets", {
       room_id: payload.room_id,
       ticket_type: "REGISTRATION",
       source: payload.source ?? "WALKIN",
@@ -40,10 +39,10 @@ export const postQueueTicketWalkin = async (payload: CreateTicketPayload) => {
 };
 
 export const getQueueTicketConsultationByEncounterIdAndTicketType = async (
-  encounterId: string
+  encounterId: string,
 ) => {
   try {
-    const response = await axiosInstance.get("/reception/queue/tickets", {
+    const response = await axiosInstance.get("/queue/tickets", {
       params: {
         encounter_id: encounterId,
         ticket_type: "CONSULTATION",
@@ -53,19 +52,19 @@ export const getQueueTicketConsultationByEncounterIdAndTicketType = async (
   } catch (error) {
     console.error(
       "Get Queue ticket by encounterId and Ticket_type error: ",
-      error
+      error,
     );
     throw error;
   }
 };
 
 export const postQueueTicketConsultation = async (
-  payload: CreateTicketPayload
+  payload: CreateTicketPayload,
 ) => {
   try {
-    const res = await axiosInstance.post("/reception/queue/tickets", {
-      room_id: payload.room_id, 
-      encounter_id: payload.encounter_id, 
+    const res = await axiosInstance.post("/queue/tickets", {
+      room_id: payload.room_id,
+      encounter_id: payload.encounter_id,
       ticket_type: "CONSULTATION",
       source: payload.source ?? "WALKIN",
       service_ids: payload.service_ids,
@@ -80,7 +79,7 @@ export const postQueueTicketConsultation = async (
 export const postCallSpecific = async (id: string) => {
   try {
     const response = await axiosInstance.post(
-      `/reception/queue/tickets/${id}/call`
+      `/queue/tickets/${id}/call`,
     );
     return response.data.data;
   } catch (error) {
@@ -92,7 +91,7 @@ export const postCallSpecific = async (id: string) => {
 export const postStartTicket = async (id: string) => {
   try {
     const response = await axiosInstance.post(
-      `/reception/queue/tickets/${id}/start`
+      `/queue/tickets/${id}/start`,
     );
     return response.data.data;
   } catch (error) {
@@ -104,7 +103,7 @@ export const postStartTicket = async (id: string) => {
 export const postSkipTicket = async (id: string) => {
   try {
     const response = await axiosInstance.post(
-      `/reception/queue/tickets/${id}/skip`
+      `/queue/tickets/${id}/skip`,
     );
     return response.data.data;
   } catch (error) {
@@ -116,7 +115,7 @@ export const postSkipTicket = async (id: string) => {
 export const postCompleteTicket = async (id: string) => {
   try {
     const response = await axiosInstance.post(
-      `/reception/queue/tickets/${id}/complete`
+      `/queue/tickets/${id}/complete`,
     );
     return response.data.data;
   } catch (error) {
@@ -137,11 +136,14 @@ export const postCompleteTicket = async (id: string) => {
 //   }
 // };
 
-export const patchUpdateTicket = async (id: string, dto: UpdateTicketPayload) => {
+export const patchUpdateTicket = async (
+  id: string,
+  dto: UpdateTicketPayload,
+) => {
   try {
     const response = await axiosInstance.patch(
-      `/reception/queue/tickets/${id}`,
-      dto
+      `/queue/tickets/${id}`,
+      dto,
     );
 
     return response.data.data;
@@ -159,7 +161,7 @@ export const postCreateTicketForCLS = async (payload: CreateTicketPayload) => {
       source: "WALKIN",
       service_ids: payload.service_ids,
     };
-    const res = await axiosInstance.post("/reception/queue/tickets", dto);
+    const res = await axiosInstance.post("/queue/tickets", dto);
     return res.data.data;
   } catch (error) {
     console.error("Create service CLS error: ", error);
@@ -171,11 +173,26 @@ export const getQueueTicketsTodayByRoomId = async (id: number) => {
   // Kĩ thuật viên tại phòng đó có thể lấy những queue_tickets gồm các serviceIds được chỉ định đến
   try {
     const response = await axiosInstance.get(
-      `/reception/queue/tickets/today/${id}`
+      `/queue/tickets/today/${id}`,
     );
     return response.data.data;
   } catch (error) {
     console.error("Get queue tickets today by room ID error: ", error);
+    throw error;
+  }
+};
+
+export const postCreateInitialConsultant = async (
+  dto: CreateInitialConsultantPayload,
+) => {
+  try {
+    const response = await axiosInstance.post(
+      "/reception/initial-consultant",
+      dto,
+    );
+    return response.data.data;
+  } catch (error) {
+    console.error("Create initial ticket for consultant error: ", error);
     throw error;
   }
 };

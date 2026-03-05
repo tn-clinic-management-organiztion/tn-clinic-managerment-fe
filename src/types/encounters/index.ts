@@ -74,7 +74,7 @@ export interface QueryEncounterPayload extends PageQueryDto {
 
 export interface StartConsultationPayload {
   doctor_id: string;
-  assigned_room_id?: number;
+  // assigned_room_id?: number;
 }
 
 export interface CompleteConsultationPayload {
