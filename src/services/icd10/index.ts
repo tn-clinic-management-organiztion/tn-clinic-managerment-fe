@@ -5,7 +5,7 @@ export const getAllIcd10 = async (
   signal?: AbortSignal
 ) => {
   try {
-    const response = await axiosInstance.get("/icd10", {
+    const response = await axiosInstance.get("/system/icd10", {
       params,
       signal
     });

@@ -9,7 +9,7 @@ export class PatientSearchDto {
 
 export const getSearchPatient = async (search: PatientSearchDto) => {
   try {
-    const response = await axiosInstance.get("/patients/search", {
+    const response = await axiosInstance.get("/iam/patients/search", {
       params: search,
     });
     return response.data.data;
@@ -21,7 +21,7 @@ export const getSearchPatient = async (search: PatientSearchDto) => {
 
 export const postCreatePatient = async (createPatientPayload: CreatePatientPayload) => {
   try {
-    const response = await axiosInstance.post("/patients", createPatientPayload);
+    const response = await axiosInstance.post("/iam/patients", createPatientPayload);
     return response.data.data;
   } catch (error) {
     console.error("Create Patient error: ", error);
@@ -35,7 +35,7 @@ export const putUpdatePatient = async (
 ) => {
   try {
     const response = await axiosInstance.put(
-      `/patients/${patientId}`,
+      `/iam/patients/${patientId}`,
       updatePatientPayload
     );
     return response.data.data;

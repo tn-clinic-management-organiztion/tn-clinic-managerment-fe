@@ -55,7 +55,7 @@ const statusBadgeClass = (st?: TicketStatus) => {
   }
 };
 
-export default function ServiceOrderModal(props: Props) {
+export default function ServiceRequestModal(props: Props) {
   const { data: session } = useSession();
 
   const [view, setView] = useState<"PICK" | "ASSIGNED">("PICK");
@@ -156,88 +156,53 @@ export default function ServiceOrderModal(props: Props) {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const submit = async () => {
-    if (!props.encounterId) return;
+  if (!props.encounterId) return;
 
-    setSubmitting(true);
-    setSubmitError(null);
+  setSubmitting(true);
+  setSubmitError(null);
 
-    try {
-      const serviceIds = selected.map((x) => x.svc.service_id);
+  try {
+    const items = selected.map((x) => ({
+      service_id: x.svc.service_id,
+    }));
 
-      if (!serviceIds.length) {
-        setSubmitError("Bạn chưa chọn dịch vụ nào.");
-        return;
-      }
-      // const requestingDoctorId = session?.user?.id;
-      const requestingDoctorId = (session as any)?.user?.id;
-      if (!requestingDoctorId) {
-        setSubmitError(
-          "Thiếu requesting_doctor_id (id bác sĩ/người chỉ định)."
-        );
-        return;
-      }
-
-      // room_id -> set(service_id)
-      const roomToServices = new Map<number, Set<number>>();
-
-      // gọi rooms cho từng service
-      for (const sid of serviceIds) {
-        const rooms = (await getRoomsForService(String(sid))) as Room[];
-
-        if (!rooms || rooms.length === 0) {
-          console.warn(`Service ${sid} chưa map vào phòng nào.`);
-          continue;
-        }
-
-        for (const r of rooms) {
-          if (!roomToServices.has(r.room_id))
-            roomToServices.set(r.room_id, new Set());
-          roomToServices.get(r.room_id)!.add(sid);
-        }
-      }
-
-      if (roomToServices.size === 0) {
-        setSubmitError(
-          "Không tìm thấy phòng tương ứng cho các dịch vụ đã chọn."
-        );
-        return;
-      }
-
-      // Tạo ticket + service_request theo từng phòng
-      for (const [room_id, setSvc] of roomToServices.entries()) {
-        const serviceIdsForRoom = Array.from(setSvc);
-
-        // 1) create queue_ticket
-        const payloadTicket: CreateTicketPayload = {
-          room_id,
-          encounter_id: props.encounterId,
-          service_ids: serviceIdsForRoom,
-          ticket_type: "SERVICE",
-        };
-
-        await postCreateTicketForCLS(payloadTicket);
-
-        // 2) create service_request
-        const payloadServiceRequest: CreateServiceRequestPayload = {
-          encounter_id: props.encounterId,
-          requesting_doctor_id: requestingDoctorId,
-          notes: undefined,
-          items: serviceIdsForRoom.map((id) => ({ service_id: id })),
-        };
-
-        await postCreateServiceRequestsByDoctor(payloadServiceRequest);
-      }
-      setSelected([]);
-      notifySuccess("Lưu chỉ định thành công");
-      props.onCreated?.();
-      props.onClose();
-    } catch (err: any) {
-      console.error("Create CLS tickets/service_requests error:", err);
-      setSubmitError(err?.message ?? "Tạo chỉ định CLS thất bại.");
-    } finally {
-      setSubmitting(false);
+    if (!items.length) {
+      setSubmitError("Bạn chưa chọn dịch vụ nào.");
+      return;
     }
-  };
+
+    const requestingDoctorId = (session as any)?.user?.id;
+    if (!requestingDoctorId) {
+      setSubmitError("Thiếu requesting_doctor_id (id bác sĩ/người chỉ định).");
+      return;
+    }
+
+    const payload: CreateServiceRequestPayload = {
+      encounter_id: props.encounterId,
+      requesting_doctor_id: requestingDoctorId,
+      items,
+      notes: undefined,
+    };
+
+    console.log("Creating service request:", payload);
+
+    await postCreateServiceRequestsByDoctor(payload);
+
+    setSelected([]);
+    notifySuccess("Lưu chỉ định thành công");
+    props.onCreated?.();
+    props.onClose();
+  } catch (err: any) {
+    console.error("Create service request error:", err);
+    setSubmitError(
+      err?.response?.data?.message ?? 
+      err?.message ?? 
+      "Tạo chỉ định CLS thất bại."
+    );
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const rootOptions = useMemo(() => categories, [categories]);
   const loadAssignedServices = async () => {

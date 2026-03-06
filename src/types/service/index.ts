@@ -24,8 +24,12 @@ export interface ServiceRequestItem {
   item_id: string;
   request_id: string;
   service_id: number;
-};
-
+  service_name: string;
+  unit_price: string | number;
+  category_id?: number | null;
+  category_name?: string | null;
+  has_result?: boolean; 
+}
 export interface Service {
   service_id: number;
   category_id?: number;

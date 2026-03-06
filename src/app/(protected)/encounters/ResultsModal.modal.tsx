@@ -5,13 +5,16 @@ import { X, Eye, CheckCircle2, Clock, FileText } from "lucide-react";
 import { cn, SquareButton } from "@/components/ui/square";
 import ShowResultReportModal from "./ShowResultReportModal.modal";
 
-import { getRequestItemsByEncouter } from "@/services/services";
-import { getFindResultByRequestItemId } from "@/services/results";
+import {
+  getClsItemsByEncounter,
+  getRequestItemsByEncouter,
+} from "@/services/services";
 import { getAllServices } from "@/services/services";
 import { ModalShell } from "@/components/modal/ModalShell";
 import { useSession } from "next-auth/react";
 import { getQueueTicketConsultationByEncounterIdAndTicketType } from "@/services/reception";
 import { Service, ServiceRequestItem, ServiceResult } from "@/types";
+import { getFindResultByRequestItemId } from "@/services/results";
 
 type Props = {
   open: boolean;
@@ -43,7 +46,7 @@ export default function ResultsModal(props: Props) {
 
   // Service results map: item_id -> ServiceResult
   const [resultsMap, setResultsMap] = useState<Map<string, ServiceResult>>(
-    new Map()
+    new Map(),
   );
 
   // Service name map
@@ -51,8 +54,9 @@ export default function ResultsModal(props: Props) {
 
   // Show modal state (giống KTV)
   const [openShowModal, setOpenShowModal] = useState(false);
-  const [showModalResult, setShowModalResult] =
-    useState<ServiceResult | null>(null);
+  const [showModalResult, setShowModalResult] = useState<ServiceResult | null>(
+    null,
+  );
   const [showModalServiceLabel, setShowModalServiceLabel] =
     useState<string>("");
 
@@ -88,7 +92,7 @@ export default function ResultsModal(props: Props) {
         } catch (e) {
           // Item chưa có result, bỏ qua
         }
-      })
+      }),
     );
 
     setResultsMap(newMap);
@@ -105,20 +109,11 @@ export default function ResultsModal(props: Props) {
       setResultsMap(new Map());
 
       try {
-        // 1. Load request items
-        const res = await getRequestItemsByEncouter(props.encounterId);
-        const queueTicketEncounter =
-          await getQueueTicketConsultationByEncounterIdAndTicketType(
-            props.encounterId
-          );
-        const serviceIdConsultation = queueTicketEncounter[0]?.service_ids[0];
+        // ✅ Dùng API mới
+        const res = await getClsItemsByEncounter(props.encounterId);
         const items = normalizeList<ServiceRequestItem>(res);
-        const items_filter = items.filter(
-          (i) => i.service_id != serviceIdConsultation
-        );
-        setRequestItems(items_filter ?? []);
+        setRequestItems(items ?? []);
 
-        // 2. Load results for all items
         if (items && items.length > 0) {
           await loadResultsForItems(items);
         }
@@ -142,10 +137,8 @@ export default function ResultsModal(props: Props) {
   const pendingCount = requestItems.length - completedCount;
 
   // Open show modal
-  const openShowReport = (
-    item: ServiceRequestItem,
-    result: ServiceResult
-  ) => {
+  const openShowReport = (item: ServiceRequestItem, result: ServiceResult) => {
+    console.log("items openShowReport: ", item);
     const name =
       serviceMap.get(item.service_id) ?? `Dịch vụ #${item.service_id}`;
     setShowModalServiceLabel(`${item.service_id} • ${name}`);
@@ -235,10 +228,10 @@ export default function ResultsModal(props: Props) {
 
                     return (
                       <tr
-                        key={item.item_id}
+                        key={`${item.item_id}-${idx}`}
                         className={cn(
                           "border-b border-secondary-100 hover:bg-secondary-50",
-                          result?.is_abnormal && "bg-error-50/30"
+                          result?.is_abnormal && "bg-error-50/30",
                         )}
                       >
                         <td className="p-2 text-secondary-500">{idx + 1}</td>
@@ -275,7 +268,7 @@ export default function ResultsModal(props: Props) {
                                 ? result?.is_abnormal
                                   ? "bg-error-50 text-error-700 border-error-200"
                                   : "bg-success-50 text-success-700 border-success-200"
-                                : "bg-warning-50 text-warning-700 border-warning-200"
+                                : "bg-warning-50 text-warning-700 border-warning-200",
                             )}
                           >
                             {done ? (
